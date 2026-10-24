@@ -103,10 +103,10 @@ struct LimitEventTests {
     }
 
     @Test func eventsCarryTheProvider() {
-        let previous = snapshot(.cursor, windows: [window("included", fraction: 0.8)])
-        let current = snapshot(.cursor, windows: [window("included", fraction: 1.0)])
+        let previous = snapshot(.grokBuild, windows: [window("included", fraction: 0.8)])
+        let current = snapshot(.grokBuild, windows: [window("included", fraction: 1.0)])
         #expect(
             LimitEvent.detect(previous: previous, current: current, now: now)
-                == [LimitEvent(provider: .cursor, windowID: "included", kind: .exhausted)])
+                == [LimitEvent(provider: .grokBuild, windowID: "included", kind: .exhausted)])
     }
 }

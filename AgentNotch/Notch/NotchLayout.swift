@@ -14,7 +14,10 @@ nonisolated struct NotchLayout {
 
     private var thickness: CGFloat { isStacked ? NotchMetrics.thickness : NotchMetrics.barThickness }
     private var bodyLength: CGFloat { NotchMetrics.bodyLength(cells: cells, stacked: isStacked) }
-    private var crossExtent: CGFloat { thickness + NotchMetrics.crossMargin }
+    /// Side edges need the card's width across the edge; top and bottom need its height.
+    private var crossExtent: CGFloat {
+        thickness + (isStacked ? NotchMetrics.crossMargin : max(NotchMetrics.crossMargin, NotchMetrics.tooltipHeightMargin))
+    }
     private var mainExtent: CGFloat { bodyLength + 2 * NotchMetrics.endMargin }
 
     var panelSize: CGSize {

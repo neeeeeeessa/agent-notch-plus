@@ -12,6 +12,17 @@ struct MenuActions {
     var quit: () -> Void
 }
 
+/// Startup allow-list. Saved usage access is kept, including Claude and Codex. An empty default stays empty.
+nonisolated enum UsageAccessStartup {
+    nonisolated static func persistedAllowList(
+        _ persisted: Set<ProviderID>,
+        codexAuthFileReadable: Bool
+    ) -> Set<ProviderID> {
+        _ = codexAuthFileReadable
+        return persisted
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var preferences: Preferences!
     private var store: UsageStore!
@@ -23,11 +34,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let preferences = Preferences()
+        let codexAuthPath = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".codex/auth.json").path
+        preferences.usageAccessProviders = UsageAccessStartup.persistedAllowList(
+            preferences.usageAccessProviders,
+            codexAuthFileReadable: FileManager.default.isReadableFile(atPath: codexAuthPath)
+        )
+        #if AGENTNOTCH_DEMO
         let store = UsageStore(providers: [
-            ClaudeOAuthProvider(),
-            CursorLocalProvider(),
-            CodexLocalProvider(),
+            DemoUsageProvider(id: .claude),
+            DemoUsageProvider(id: .codex),
+            DemoUsageProvider(id: .grokBuild),
         ])
+        #else
+        let store = UsageStore(
+            providers: [
+                ClaudeOAuthProvider(),
+                CodexLocalProvider(),
+                GrokBuildProvider(),
+            ],
+            enabledProviders: preferences.usageAccessProviders
+        )
+        #endif
         self.preferences = preferences
         self.store = store
 
@@ -37,20 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         settings = SettingsWindowController(
             preferences: preferences,
-            store: store,
-            updater: updater.updater,
-            onClaudeSignIn: {
-                ClaudeOAuthStore.skipClaudeCodeImport = false
-                try await ClaudeOAuthLogin.signIn()
-                ClaudeOAuthProvider.forgetSession()
-                store.refresh(.claude)
-            },
-            onClaudeSignOut: {
-                ClaudeOAuthProvider.forgetSession()
-                ClaudeOAuthStore.clear()
-                ClaudeOAuthStore.skipClaudeCodeImport = true
-                store.refresh(.claude)
-            }
+            store: store
         )
         let model = NotchViewModel(preferences: preferences, store: store)
         notch = NotchWindowController(model: model)
@@ -71,7 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyPresence()
         observePresence()
         store.start()
-        installCheckForUpdatesMenuItem()
 
         if preferences.isFirstLaunch {
             settings.show()
@@ -183,6 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         item.target = self
+        item.isEnabled = false
         guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
         let index = min(1, appMenu.numberOfItems)
         appMenu.insertItem(item, at: index)
@@ -246,3 +261,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updater.checkForUpdates()
     }
 }
+
+#if AGENTNOTCH_DEMO
+/// Fixed sample readings. Never reads credentials, local sessions, or the network.
+internal nonisolated struct DemoUsageProvider: UsageProvider {
+    var id: ProviderID
+
+    func fetch() async throws -> ProviderSnapshot {
+        let now = Date()
+        switch id {
+        case .claude:
+            let weeklyReset = now.addingTimeInterval(4 * 24 * 60 * 60)
+            return ProviderSnapshot(
+                id: .claude,
+                account: "Sample data",
+                plan: nil,
+                windows: [
+                    LimitWindow(
+                        id: "session",
+                        label: "Current session",
+                        usedFraction: 0.73,
+                        resetsAt: now.addingTimeInterval(80 * 60)
+                    ),
+                    LimitWindow(
+                        id: "weekly",
+                        label: "All models",
+                        usedFraction: 0.42,
+                        resetsAt: weeklyReset
+                    ),
+                    LimitWindow(
+                        id: "weekly_sonnet",
+                        label: "Sonnet",
+                        usedFraction: 0.28,
+                        resetsAt: weeklyReset
+                    ),
+                ],
+                sessions: [
+                    AgentSession(
+                        id: "sample",
+                        name: "Sample session",
+                        detail: "sample",
+                        activity: .working,
+                        startedAt: now.addingTimeInterval(-12 * 60)
+                    )
+                ],
+                fetchedAt: now
+            )
+        case .codex:
+            return ProviderSnapshot(
+                id: .codex,
+                account: "Sample data",
+                plan: nil,
+                windows: [
+                    LimitWindow(
+                        id: "primary",
+                        label: "Current session",
+                        usedFraction: 0.21,
+                        resetsAt: now.addingTimeInterval(4 * 60 * 60)
+                    ),
+                    LimitWindow(
+                        id: "secondary",
+                        label: "Weekly limit",
+                        usedFraction: 0.54,
+                        resetsAt: now.addingTimeInterval(3 * 24 * 60 * 60)
+                    ),
+                ],
+                fetchedAt: now
+            )
+        case .grokBuild:
+            return ProviderSnapshot(
+                id: .grokBuild,
+                account: "Sample data",
+                plan: nil,
+                windows: [
+                    LimitWindow(
+                        id: "credits",
+                        label: "Weekly allowance",
+                        usedFraction: 0.55,
+                        resetsAt: now.addingTimeInterval(3 * 24 * 60 * 60)
+                    ),
+                ],
+                fetchedAt: now,
+                grokBilling: GrokBilling(
+                    products: [
+                        UsageShare(id: "GrokBuild", label: "Grok Build", percentOfAllowance: 30),
+                        UsageShare(id: "GrokBot", label: "Grok Bot", percentOfAllowance: 15),
+                        UsageShare(id: "Cursor", label: "Cursor", percentOfAllowance: 10),
+                    ],
+                    periodIsWeekly: true,
+                    periodStart: now.addingTimeInterval(-4 * 24 * 60 * 60),
+                    periodEnd: now.addingTimeInterval(3 * 24 * 60 * 60),
+                    isUnifiedBilling: true,
+                    prepaidBalanceCents: nil,
+                    topUpMethod: nil
+                )
+            )
+        }
+    }
+}
+#endif

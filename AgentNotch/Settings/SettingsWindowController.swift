@@ -1,28 +1,18 @@
 import AppKit
-import Sparkle
 import SwiftUI
 
 /// Single settings window, created on first use and reused afterwards.
 final class SettingsWindowController {
     private let preferences: Preferences
-    private let updater: SPUUpdater
     private let store: UsageStore
-    private let onClaudeSignIn: () async throws -> Void
-    private let onClaudeSignOut: () -> Void
     private var window: NSWindow?
 
     init(
         preferences: Preferences,
-        store: UsageStore,
-        updater: SPUUpdater,
-        onClaudeSignIn: @escaping () async throws -> Void,
-        onClaudeSignOut: @escaping () -> Void
+        store: UsageStore
     ) {
         self.preferences = preferences
         self.store = store
-        self.updater = updater
-        self.onClaudeSignIn = onClaudeSignIn
-        self.onClaudeSignOut = onClaudeSignOut
     }
 
     func show() {
@@ -37,10 +27,7 @@ final class SettingsWindowController {
         let hosting = NSHostingController(
             rootView: SettingsView(
                 preferences: preferences,
-                store: store,
-                updater: updater,
-                onClaudeSignIn: onClaudeSignIn,
-                onClaudeSignOut: onClaudeSignOut
+                store: store
             ))
         let window = NSWindow(contentViewController: hosting)
         window.title = "Agent Notch Settings"
@@ -49,7 +36,16 @@ final class SettingsWindowController {
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = true
-        window.setContentSize(hosting.view.fittingSize)
+        let fitted = hosting.view.fittingSize
+        window.setContentSize(fitted)
+        let margin: CGFloat = 48
+        if let visible = (window.screen ?? NSScreen.main)?.visibleFrame,
+            window.frame.height > visible.height - margin
+        {
+            let chrome = window.frame.height - fitted.height
+            let contentHeight = max(320, visible.height - margin - chrome)
+            window.setContentSize(NSSize(width: fitted.width, height: contentHeight))
+        }
         return window
     }
 }

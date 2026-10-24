@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 nonisolated struct ClaudeOAuthSession: Codable, Equatable, Sendable {
     var accessToken: String
@@ -17,11 +16,10 @@ nonisolated struct ClaudeOAuthSession: Codable, Equatable, Sendable {
             let accessToken = oauth["accessToken"] as? String, !accessToken.isEmpty,
             let expiresAtRaw = ProviderJSON.double(oauth["expiresAt"])
         else { return nil }
-        let refresh = (oauth["refreshToken"] as? String) ?? ""
         let expiresAt = expiresAtRaw >= 1_000_000_000_000 ? expiresAtRaw / 1000 : expiresAtRaw
         return ClaudeOAuthSession(
             accessToken: accessToken,
-            refreshToken: refresh,
+            refreshToken: "",
             expiresAt: expiresAt,
             email: nil
         )
@@ -33,74 +31,31 @@ nonisolated enum ClaudeOAuthStore {
     static let account = "claude"
     static let claudeCodeService = "Claude Code-credentials"
     private static let skipImportKey = "skipClaudeCodeImport"
-    private static let gate = NSLock()
-    private static let cache = OSAllocatedUnfairLock<Cache>(initialState: .cold)
-
-    private enum Cache: Sendable {
-        case cold
-        case loaded(ClaudeOAuthSession?)
-    }
 
     static var skipClaudeCodeImport: Bool {
         get { UserDefaults.standard.bool(forKey: skipImportKey) }
         set { UserDefaults.standard.set(newValue, forKey: skipImportKey) }
     }
 
+    /// Retired. Does not read app-owned or Claude Code keychain items.
     static func load() throws -> ClaudeOAuthSession? {
-        gate.lock()
-        defer { gate.unlock() }
-        if case .loaded(let session) = cache.withLock({ $0 }) {
-            return session
-        }
-        do {
-            let session = try read()
-            cache.withLock { $0 = .loaded(session) }
-            return session
-        } catch {
-            cache.withLock { $0 = .loaded(nil) }
-            throw error
-        }
+        nil
     }
 
+    /// Retired. Does not write a session.
     static func save(_ session: ClaudeOAuthSession) throws {
-        removeLegacyFileCache()
-        let data = try JSONEncoder().encode(session)
-        try Keychain.set(data, service: service, account: account)
-        cache.withLock { $0 = .loaded(session) }
+        throw ClaudeCredentialAccessError.sessionSaveDisabled
     }
 
-    static func clear() {
-        cache.withLock { $0 = .loaded(nil) }
-        removeLegacyFileCache()
-        Keychain.delete(service: service, account: account)
-    }
+    /// Retired. Does not delete keychain items or files.
+    static func clear() {}
 
-    private static func read() throws -> ClaudeOAuthSession? {
-        removeLegacyFileCache()
-        if let data = try Keychain.data(service: service, account: account),
-            let session = try? JSONDecoder().decode(ClaudeOAuthSession.self, from: data)
-        {
-            return session
-        }
-        if skipClaudeCodeImport { return nil }
-        guard
-            let data = try Keychain.data(
-                service: claudeCodeService, dataProtection: false),
-            let session = ClaudeOAuthSession.fromClaudeCodeBlob(data)
-        else { return nil }
-        try? save(session)
-        return session
-    }
-
-    /// Previous builds copied Claude Code's blob into Application Support. Delete it.
-    static func removeLegacyFileCache() {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("AgentNotch", isDirectory: true)
-            .appendingPathComponent("claude-oauth.json")
-        try? FileManager.default.removeItem(at: url)
-    }
+    /// Retired. Does not delete a legacy Application Support cache. Cleanup is an explicit owner decision.
+    static func removeLegacyFileCache() {}
 }
 
+/// URL, scope, and token-response helpers kept so existing parser tests compile.
+/// There is no executable login entry point. `ClaudeOAuthLogin.signIn` and `refresh` always fail.
 nonisolated enum ClaudeOAuth {
     static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     static let authorizeEndpoint = URL(string: "https://claude.ai/oauth/authorize")!

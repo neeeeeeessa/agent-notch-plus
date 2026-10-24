@@ -1,66 +1,63 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/header/glow.svg?title=Agent+Notch&subtitle=LLM+usage%2C+in+your+Mac%27s+notch&logo=https://raw.githubusercontent.com/itslucadev/AgentNotch/main/AgentNotch/Assets.xcassets/AppIcon.appiconset/icon_128.png&theme=zinc&mode=dark" />
-    <img alt="Agent Notch" src="https://shieldcn.dev/header/glow.svg?title=Agent+Notch&subtitle=LLM+usage%2C+in+your+Mac%27s+notch&logo=https://raw.githubusercontent.com/itslucadev/AgentNotch/main/AgentNotch/Assets.xcassets/AppIcon.appiconset/icon_128.png&theme=zinc&mode=light" />
-  </picture>
-</p>
+# Agent Notch Plus
+
+Agent Notch Plus puts Claude, Codex, and Grok usage in the Mac notch.
 
 <p align="center">
-  <a href="https://github.com/itslucadev/AgentNotch/releases">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/github/release/itslucadev/AgentNotch.svg?variant=secondary&mode=dark" />
-      <img alt="Latest release" src="https://shieldcn.dev/github/release/itslucadev/AgentNotch.svg?variant=secondary&mode=light" />
-    </picture>
-  </a>
-  <a href="https://github.com/itslucadev/AgentNotch/stargazers">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/github/stars/itslucadev/AgentNotch.svg?variant=secondary&mode=dark" />
-      <img alt="GitHub stars" src="https://shieldcn.dev/github/stars/itslucadev/AgentNotch.svg?variant=secondary&mode=light" />
-    </picture>
-  </a>
-  <a href="https://lucabecker.dev/agent-notch">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/macOS-26+-blue.svg?logo=apple&variant=secondary&mode=dark" />
-      <img alt="macOS 26+" src="https://shieldcn.dev/badge/macOS-26+-blue.svg?logo=apple&variant=secondary&mode=light" />
-    </picture>
-  </a>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/Swift-6-orange.svg?logo=swift&variant=secondary&mode=dark" />
-    <img alt="Swift 6" src="https://shieldcn.dev/badge/Swift-6-orange.svg?logo=swift&variant=secondary&mode=light" />
-  </picture>
+  <img src="Design/readme/hover.gif" alt="Hover the closed notch, then Claude, Codex, and Grok" width="460" />
 </p>
 
-A native side notch that shows how much of your Claude, Cursor and Codex limits you have used, so you find out before the rate limit does. It reads the sign-ins those tools already keep on your Mac and never asks for one of its own.
+[Agent Notch Plus](https://github.com/neeeeeeessa/agent-notch-plus) is developed by [Vanessa Simões](https://x.com/enchantedcode). Forked from [Agent Notch](https://github.com/itslucadev/AgentNotch) by Luca Becker.
 
-<p align="center">
-  <img src="Design/peek-demo.gif" alt="Agent Notch on the screen edge, with Peek looking out of the notch" />
-</p>
+## What it does
 
-## Features
+The circles sit on the edge of the screen. Hover one for its detail card. Click one to refresh that circle only.
 
-- **Three rings, one glance.** Claude, Cursor and Codex limits as rings on the edge of your screen. Green, yellow and red tell you how close you are before a session stalls.
-- **Hover for the full picture.** Every window with its reset time, plus the Claude Code sessions running right now. Click a ring to refresh it.
-- **Never signs in.** Switch accounts in the tool and the notch follows.
-- **Lives where you want it.** Right, left, top or bottom edge. Keep it open, collapse it to a pill that opens on hover, or hide it completely.
+You can put the notch on the right, left, top, or bottom edge. It can stay open, collapse to a pill that opens when you reach it, or stay hidden. The app icon can live in the Dock, in the menu bar, or nowhere.
 
-## Download
+The app does not create an account. Claude uses the sign-in Claude Code already saved. Codex uses the sign-in Codex already saved. Grok uses the sign-in the Grok CLI already saved.
 
-[Get Agent Notch](https://lucabecker.dev/agent-notch) or grab the zip from [Releases](https://github.com/itslucadev/AgentNotch/releases/latest).
+## Changes from Agent Notch
 
-Requires macOS 26 or later, and Claude Code, Cursor or Codex signed in on this Mac. macOS will ask once whether Agent Notch may read Claude Code's keychain item; choose Always Allow and it stays quiet. Notarized by Apple. Updates itself.
+Agent Notch's third circle is Cursor, and its rings turn green, yellow, and red as a limit fills. This fork changes that, and a few behaviors around it.
+
+- The circles are Claude, Codex, and Grok. Cursor is a row on the Grok card. That card is one weekly allowance shared by Grok Build, Grok Bot, and Cursor, with the per-product split the server reports.
+- Each provider has a fixed color. The color stays put as usage rises.
+- Usage access starts off. You turn it on for each provider. A token goes only to that provider's usage host. The app does not refresh tokens.
+- When a usage endpoint rate-limits, the last good reading stays bright through the cooldown.
+- A click refreshes only the circle you hit.
+- The mascot stays still while you are away.
+- Update checks are off. `Config/Info.plist` still lists the upstream appcast. This build does not contact it.
+
+## Requirements
+
+macOS 26 or later, and Xcode to build. Sign in to Claude Code, Codex, or the Grok CLI before you expect live numbers. There is no notarized download of this fork.
 
 ## Build
 
 ```bash
+git clone https://github.com/neeeeeeessa/agent-notch-plus.git
+cd agent-notch-plus
 open AgentNotch.xcodeproj
 ```
 
-Or from the command line:
+Select the AgentNotch target, open Signing & Capabilities, and choose your own Team. The project still names the upstream development team. That signature will not build for you.
+
+Then use Product, Run.
+
+A local build that skips team signing:
 
 ```bash
-xcodebuild -project AgentNotch.xcodeproj -scheme AgentNotch -configuration Debug -destination 'platform=macOS' build
+xcodebuild -project AgentNotch.xcodeproj -scheme AgentNotch -configuration Debug -destination 'platform=macOS' CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= build
 ```
 
-## Credits
+Xcode prints the path of `AgentNotch.app` near the end of that log.
 
-Rebuilt from Codenotch by Vinz, whose idea this is.
+## First launch
+
+A new install starts with usage access off. Nothing is read until you turn a switch on.
+
+Open Settings from the menu bar icon, or from the Dock icon if you left the app there.
+
+- Claude asks macOS for permission to read the Claude Code keychain item.
+- Codex reads `~/.codex/auth.json` when that file is readable. Otherwise it asks for the Codex Auth keychain item.
+- Grok reads `~/.grok/auth.json`. Sign in with the Grok CLI before you turn that switch on.

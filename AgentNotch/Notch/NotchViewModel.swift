@@ -31,17 +31,20 @@ final class NotchViewModel {
     var tooltipHeight: CGFloat = 0
 
     // MARK: Peek
-    // Read inside the face's timeline on every tick, so none of it needs to invalidate the view tree.
+    // High-frequency pointer samples and animation timestamps stay ignored. Observed activity
+    // (`isPeekInteracting`) wakes and pauses the face timeline; observed cue and clip wake deliberate beats.
 
     /// Last pointer position in panel coordinates, nil when outside the panel.
     @ObservationIgnored private(set) var pointer: CGPoint?
+    /// True while the pointer is over the visible pill, body, tooltip, head, or orb — not the panel's empty margin.
+    private(set) var isPeekInteracting = false
     /// When the last refresh click happened, so the eyes can roll along with the ring.
     @ObservationIgnored private(set) var refreshRollStart: TimeInterval?
     @ObservationIgnored private(set) var peekBlinkAt: TimeInterval?
-    @ObservationIgnored private(set) var peekCue: PeekCue?
+    private(set) var peekCue: PeekCue?
     @ObservationIgnored private(set) var peekCueStart: TimeInterval?
     /// An authored clip drawn in place of the head. Exclusive with `peekCue`: a beat is one or the other.
-    @ObservationIgnored private(set) var peekClip: PeekClip?
+    private(set) var peekClip: PeekClip?
     @ObservationIgnored private(set) var peekClipStart: TimeInterval?
 
     /// True while a limit notification owns expand/hover, so the pointer cannot collapse it.
@@ -193,15 +196,17 @@ final class NotchViewModel {
     func pointerMoved(to point: CGPoint?) {
         pointer = point
         let visibility = preferences.notchVisibility
-        guard !isDemoPlaying, !isNotifying else { return }
-
-        guard visibility != .hidden else { return }
         let layout = layout
 
         let inShape = point.map { layout.shapeRect.insetBy(dx: -4, dy: -4).contains($0) } ?? false
         let inTooltip = point.flatMap { p in hoveredIndex.map { layout.tooltipHotRect(for: $0).contains(p) } } ?? false
         let inOrb = point.map { isExpanded && layout.orbHotRect(orbShown: isOrbHovered).contains($0) } ?? false
         let inHead = point.map { isExpanded && layout.headRect.contains($0) } ?? false
+        let interacting = visibility != .hidden && (inShape || inTooltip || inOrb || inHead)
+        if isPeekInteracting != interacting { isPeekInteracting = interacting }
+
+        guard !isDemoPlaying, !isNotifying else { return }
+        guard visibility != .hidden else { return }
 
         if visibility == .onHover {
             if inShape || inTooltip || inOrb || inHead {

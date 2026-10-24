@@ -11,7 +11,7 @@ struct ProviderUsageTests {
             """.utf8)
         let session = try #require(ClaudeOAuthSession.fromClaudeCodeBlob(blob))
         #expect(session.accessToken == "tok")
-        #expect(session.refreshToken == "ref")
+        #expect(session.refreshToken == "")
         #expect(abs(session.expiresAt - 1_788_542_453.069) < 0.01)
     }
 

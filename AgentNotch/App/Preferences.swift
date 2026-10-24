@@ -87,6 +87,8 @@ final class Preferences {
         static let notchVisibility = "notchVisibility"
         static let appPresence = "appPresence"
         static let hiddenProviders = "hiddenProviders"
+        /// Providers the user explicitly allowed to read an existing sign-in. Never derived from visibility.
+        static let usageAccessProviders = "usageAccessProviders"
         static let hasLaunchedBefore = "hasLaunchedBefore"
     }
 
@@ -107,6 +109,13 @@ final class Preferences {
     var hiddenProviders: Set<ProviderID> {
         didSet {
             defaults.set(hiddenProviders.map(\.rawValue).sorted(), forKey: Key.hiddenProviders)
+        }
+    }
+
+    /// Live usage permission. Empty means no provider may read a sign-in. Independent of `hiddenProviders`.
+    var usageAccessProviders: Set<ProviderID> {
+        didSet {
+            defaults.set(usageAccessProviders.map(\.rawValue).sorted(), forKey: Key.usageAccessProviders)
         }
     }
 
@@ -140,6 +149,8 @@ final class Preferences {
         appPresence = defaults.string(forKey: Key.appPresence).flatMap(AppPresence.init) ?? .menuBar
         let hidden = defaults.stringArray(forKey: Key.hiddenProviders) ?? []
         hiddenProviders = Set(hidden.compactMap(ProviderID.init))
+        let allowed = defaults.stringArray(forKey: Key.usageAccessProviders) ?? []
+        usageAccessProviders = Set(allowed.compactMap(ProviderID.init))
         opensAtLogin = SMAppService.mainApp.status == .enabled
         isFirstLaunch = !defaults.bool(forKey: Key.hasLaunchedBefore)
         defaults.set(true, forKey: Key.hasLaunchedBefore)
@@ -154,6 +165,15 @@ final class Preferences {
             hiddenProviders.remove(id)
         } else {
             hiddenProviders.insert(id)
+        }
+    }
+
+    /// Grants or revokes live usage access. Does not change notch visibility.
+    func setUsageAccess(_ id: ProviderID, allowed: Bool) {
+        if allowed {
+            usageAccessProviders.insert(id)
+        } else {
+            usageAccessProviders.remove(id)
         }
     }
 }

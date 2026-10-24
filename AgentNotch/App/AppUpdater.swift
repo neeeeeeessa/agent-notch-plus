@@ -6,25 +6,18 @@ import AppKit
 /// Agent Notch often runs as a menu-bar accessory (`LSUIElement`), so Sparkle's
 /// standard alert would otherwise appear behind everything or not become key.
 final class AppUpdater: NSObject, SPUStandardUserDriverDelegate, SPUUpdaterDelegate {
-    private(set) var controller: SPUStandardUpdaterController!
+    private(set) var controller: SPUStandardUpdaterController?
     private let restorePresence: () -> Void
 
-    var updater: SPUUpdater { controller.updater }
-    var canCheckForUpdates: Bool { updater.canCheckForUpdates }
+    var updater: SPUUpdater? { controller?.updater }
+    var canCheckForUpdates: Bool { false }
 
     init(restorePresence: @escaping () -> Void) {
         self.restorePresence = restorePresence
         super.init()
-        controller = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: self,
-            userDriverDelegate: self
-        )
     }
 
-    func checkForUpdates() {
-        controller.checkForUpdates(nil)
-    }
+    func checkForUpdates() {}
 
     #if DEBUG
         func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {

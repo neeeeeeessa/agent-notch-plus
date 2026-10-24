@@ -5,15 +5,17 @@ nonisolated struct CodexLocalProvider: UsageProvider {
 
     private static let usageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
 
+    static let sessionLogScanningDisabled = "Session log scanning is disabled"
+
     func fetch() async throws -> ProviderSnapshot {
-        if let live = await liveSnapshot() {
-            return live
+        guard let live = try await liveSnapshot() else {
+            throw UsageProviderError.needsAuth("Sign in to Codex to read your usage")
         }
-        return try snapshotFromRollouts()
+        return live
     }
 
-    func liveSnapshot() async -> ProviderSnapshot? {
-        guard let blob = authBlob(), let token = authToken(in: blob) else { return nil }
+    func liveSnapshot() async throws -> ProviderSnapshot? {
+        guard let blob = try authBlob(), let token = quotaAccessToken(in: blob) else { return nil }
         var headers = [
             "Authorization": "Bearer \(token)",
             "Accept": "application/json",
@@ -21,53 +23,22 @@ nonisolated struct CodexLocalProvider: UsageProvider {
         if let accountID = authAccountID(in: blob) {
             headers["chatgpt-account-id"] = accountID
         }
-        do {
-            let data = try await ProviderHTTP.get(
-                url: Self.usageURL,
-                headers: headers,
-                authFailed: "Sign in to Codex to read your usage"
-            )
-            return try snapshot(from: try ProviderJSON.object(data))
-        } catch {
-            return nil
-        }
+        let data = try await ProviderHTTP.get(
+            url: Self.usageURL,
+            headers: headers,
+            authFailed: "Sign in to Codex to read your usage"
+        )
+        return try snapshot(from: try ProviderJSON.object(data))
     }
 
+    /// Rollout and state-database scanning is retired. This returns before any file access.
     func snapshotFromRollouts() throws -> ProviderSnapshot {
-        let candidates = rolloutPaths()
-        guard !candidates.isEmpty else {
-            if hasAuth() {
-                throw UsageProviderError.unavailable("Codex has not recorded a usage snapshot yet")
-            }
-            throw UsageProviderError.needsAuth("Sign in to Codex to read your usage")
-        }
-
-        var sawReadable = false
-        var sawUnreadable = false
-        for path in candidates {
-            guard let data = tail(path) else {
-                sawUnreadable = true
-                continue
-            }
-            sawReadable = true
-            if let limits = rateLimits(in: data) {
-                return try snapshot(from: limits)
-            }
-        }
-        if !sawReadable && sawUnreadable {
-            throw UsageProviderError.unavailable("Codex's rollout could not be read")
-        }
-        if hasAuth() {
-            throw UsageProviderError.unavailable("Codex has not recorded a usage snapshot yet")
-        }
-        throw UsageProviderError.needsAuth("Sign in to Codex to read your usage")
+        throw UsageProviderError.unavailable(Self.sessionLogScanningDisabled)
     }
 
-    func hasAuth() -> Bool { authToken(in: authBlob()) != nil }
-
-    func authBlob() -> Data? {
+    func authBlob() throws -> Data? {
         if let data = authFileData() { return data }
-        return try? Keychain.data(service: "Codex Auth", dataProtection: false)
+        return try Keychain.data(service: "Codex Auth", dataProtection: false)
     }
 
     func authFileData() -> Data? {
@@ -76,6 +47,17 @@ nonisolated struct CodexLocalProvider: UsageProvider {
         return try? Data(contentsOf: url)
     }
 
+    /// Live quota calls accept only an OAuth access token. API keys are not sent to the usage endpoint.
+    func quotaAccessToken(in data: Data?) -> String? {
+        guard let data,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let tokens = json["tokens"] as? [String: Any],
+            let token = tokens["access_token"] as? String, !token.isEmpty
+        else { return nil }
+        return token
+    }
+
+    /// Legacy parser kept for the pure API-key test. Live fetch and auth checks do not call this.
     func authToken(in data: Data?) -> String? {
         guard let data,
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -98,57 +80,6 @@ nonisolated struct CodexLocalProvider: UsageProvider {
             let id = tokens["account_id"] as? String, !id.isEmpty
         else { return nil }
         return id
-    }
-
-    private func rolloutPaths() -> [String] {
-        let db = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".codex/state_5.sqlite").path
-        if let rows = ReadonlySQLite.queryColumn(
-            path: db,
-            sql: "SELECT rollout_path FROM threads ORDER BY updated_at DESC LIMIT 20"
-        ), !rows.isEmpty {
-            return rows
-        }
-        return globRollouts()
-    }
-
-    private func globRollouts() -> [String] {
-        let root = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".codex/sessions", isDirectory: true)
-        guard
-            let enumerator = FileManager.default.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            )
-        else { return [] }
-
-        var matches: [(String, Date)] = []
-        for case let url as URL in enumerator {
-            let name = url.lastPathComponent
-            guard name.hasPrefix("rollout-"), name.hasSuffix(".jsonl") else { continue }
-            let date =
-                (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate ?? .distantPast
-            matches.append((url.path, date))
-        }
-        matches.sort { $0.1 > $1.1 }
-        return matches.map(\.0)
-    }
-
-    private func tail(_ path: String, bytes: Int = 256 * 1024) -> Data? {
-        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
-            return nil
-        }
-        defer { try? handle.close() }
-        guard let size = try? handle.seekToEnd() else { return nil }
-        let offset: UInt64 = size > UInt64(bytes) ? size - UInt64(bytes) : 0
-        do {
-            try handle.seek(toOffset: offset)
-            return try handle.readToEnd()
-        } catch {
-            return nil
-        }
     }
 
     func rateLimits(in data: Data) -> [String: Any]? {

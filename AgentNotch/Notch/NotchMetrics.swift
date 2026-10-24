@@ -44,7 +44,7 @@ nonisolated enum NotchMetrics {
     /// Tail apex to body.
     static let tooltipGap: CGFloat = 15
     /// Tallest card we lay out for; the panel reserves this much beside the body.
-    static let tooltipMaxHeight: CGFloat = 280
+    static let tooltipMaxHeight: CGFloat = 380
 
     static let orbDiameter: CGFloat = 48
     /// Body end to orb start.
@@ -62,6 +62,8 @@ nonisolated enum NotchMetrics {
     static let endMargin: CGFloat = 140
     /// Room kept across the edge for the tooltip.
     static let crossMargin: CGFloat = tooltipWidth + tooltipTailLength + tooltipGap + 12
+    /// Room kept below or above a top or bottom bar for the tallest card.
+    static let tooltipHeightMargin: CGFloat = tooltipMaxHeight + tooltipTailLength + tooltipGap + 12
 
     static func bodyLength(cells: Int, stacked: Bool) -> CGFloat {
         let count = max(cells, 1)

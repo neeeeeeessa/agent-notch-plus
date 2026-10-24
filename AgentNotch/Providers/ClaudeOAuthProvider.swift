@@ -1,62 +1,45 @@
 import Foundation
-import os
 
 nonisolated struct ClaudeOAuthProvider: UsageProvider {
     var id: ProviderID { .claude }
 
-    private static let cache = OSAllocatedUnfairLock<ClaudeOAuthSession?>(initialState: nil)
-
+    /// Reads Claude Code's existing keychain item only while `fetch` runs. The access token is a local.
     func fetch() async throws -> ProviderSnapshot {
-        var session = try await currentSession()
-        var data: Data
-        do {
-            data = try await usage(with: session)
-        } catch UsageProviderError.needsAuth {
-            Self.cache.withLock { $0 = nil }
-            session = try await ClaudeOAuthLogin.refresh(session)
-            data = try await usage(with: session)
+        guard
+            let data = try Keychain.data(
+                service: ClaudeOAuthStore.claudeCodeService, dataProtection: false)
+        else {
+            throw UsageProviderError.needsAuth(Self.renewInClaudeCode)
         }
-        let root = try ProviderJSON.object(data)
+        guard let session = ClaudeOAuthSession.fromClaudeCodeBlob(data) else {
+            throw UsageProviderError.needsAuth(Self.renewInClaudeCode)
+        }
+        guard session.expires > Date() else {
+            throw UsageProviderError.needsAuth(Self.renewInClaudeCode)
+        }
+        let accessToken = session.accessToken
+        let body = try await ProviderHTTP.get(
+            url: ClaudeOAuth.usageEndpoint,
+            headers: [
+                "Authorization": "Bearer \(accessToken)",
+                "anthropic-beta": "oauth-2025-04-20",
+                "Accept": "application/json",
+            ],
+            authFailed: Self.renewInClaudeCode
+        )
+        let root = try ProviderJSON.object(body)
         return ProviderSnapshot(
             id: .claude,
-            account: session.email,
+            account: nil,
             plan: nil,
             windows: windows(from: root),
-            sessions: ClaudeSessionMonitor.liveSessions(),
+            sessions: [],
             fetchedAt: Date()
         )
     }
 
-    static func forgetSession() {
-        cache.withLock { $0 = nil }
-    }
-
-    private func currentSession() async throws -> ClaudeOAuthSession {
-        if let cached = Self.cache.withLock({ $0 }), !cached.needsRefresh {
-            return cached
-        }
-        guard var session = try ClaudeOAuthStore.load() else {
-            throw UsageProviderError.needsAuth(ProviderID.claude.signInHint)
-        }
-        if session.needsRefresh {
-            session = try await ClaudeOAuthLogin.refresh(session)
-        }
-        let ready = session
-        Self.cache.withLock { $0 = ready }
-        return ready
-    }
-
-    private func usage(with session: ClaudeOAuthSession) async throws -> Data {
-        try await ProviderHTTP.get(
-            url: ClaudeOAuth.usageEndpoint,
-            headers: [
-                "Authorization": "Bearer \(session.accessToken)",
-                "anthropic-beta": "oauth-2025-04-20",
-                "Accept": "application/json",
-            ],
-            authFailed: ProviderID.claude.signInHint
-        )
-    }
+    static let renewInClaudeCode =
+        "Refresh sign-in in Claude Code. Agent Notch does not sign in or refresh tokens."
 
     func windows(from root: [String: Any]) -> [LimitWindow] {
         var windows: [LimitWindow] = []

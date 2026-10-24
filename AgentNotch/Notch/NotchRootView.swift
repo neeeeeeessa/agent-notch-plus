@@ -37,9 +37,10 @@ struct NotchRootView: View {
                 spinTurns: model.spinTurns[id] ?? 0
             )
             .frame(width: rect.width, height: rect.height)
-            .position(x: rect.midX, y: rect.midY)
+            // Bound the click target to the cell frame before position expands layout across the panel.
             .contentShape(Rectangle())
             .onTapGesture { model.cellClicked(id) }
+            .position(x: rect.midX, y: rect.midY)
             .opacity(model.isExpanded ? 1 : 0)
             .scaleEffect(model.isExpanded ? 1 : 0.6, anchor: layout.edge.anchorAtEdge)
         }
@@ -183,7 +184,9 @@ struct ProviderCell: View {
         VStack(spacing: NotchMetrics.ringLabelSpacing) {
             ZStack {
                 StatusRing(
-                    fraction: headline?.usedFraction, color: headline?.band.color ?? .clear, dimmed: status.isStale
+                    fraction: headline?.usedFraction,
+                    color: headline == nil ? .clear : id.accentColor,
+                    dimmed: status.isStale
                 )
                 .rotationEffect(.degrees(Double(spinTurns) * 360))
                 .animation(.easeInOut(duration: 0.75), value: spinTurns)
@@ -204,7 +207,7 @@ struct ProviderCell: View {
             Text("\(Int((headline.usedFraction * 100).rounded()))%")
                 .font(.system(size: 14.5, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(id.accentColor)
                 .opacity(status.isStale ? 0.6 : 1)
                 .contentTransition(.numericText())
                 .animation(.easeOut(duration: 0.3), value: headline.usedFraction)

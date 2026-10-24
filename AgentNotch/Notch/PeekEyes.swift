@@ -96,7 +96,10 @@ struct PeekView: View {
     var body: some View {
         let placement = style == .head ? PeekPlacement.head(layout) : PeekPlacement.pill(layout)
         let interval: TimeInterval = style == .head ? 1 / 60 : 1 / 30
-        TimelineView(.animation(minimumInterval: interval, paused: paused)) { context in
+        // Idle (no pointer, notice, cue, or clip) must not keep sampling blinks. A paused
+        // timeline still advances its date on unrelated refreshes, so the frame is pinned to t = 0.
+        let resting = !model.isPeekInteracting && !model.isNotifying && model.peekCue == nil && model.peekClip == nil
+        TimelineView(.animation(minimumInterval: interval, paused: paused || resting)) { context in
             let target = style == .head ? model.hoveredIndex.map { layout.ringCenter($0) } : nil
             let face = PeekFace(
                 mood: model.mood,
@@ -105,13 +108,13 @@ struct PeekView: View {
                 down: placement.down,
                 bias: placement.bias,
                 look: placement.look(pointer: model.pointer, target: target),
-                rollStart: style == .head ? model.refreshRollStart : nil,
-                blinkAt: model.peekBlinkAt,
+                rollStart: resting ? nil : (style == .head ? model.refreshRollStart : nil),
+                blinkAt: resting ? nil : model.peekBlinkAt,
                 reducedMotion: reduceMotion,
                 cue: model.peekCue,
                 cueStart: model.peekCueStart)
-            let t = context.date.timeIntervalSinceReferenceDate
-            let clipImage = style == .head ? clipFrame(at: t) : nil
+            let t = resting ? 0 : context.date.timeIntervalSinceReferenceDate
+            let clipImage = resting ? nil : (style == .head ? clipFrame(at: t) : nil)
             let frame = face.sample(at: t)
             Canvas { gc, size in
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)

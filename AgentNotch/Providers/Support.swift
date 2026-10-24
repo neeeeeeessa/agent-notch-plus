@@ -51,31 +51,126 @@ nonisolated enum ProviderJSON: Sendable {
 }
 
 nonisolated enum ProviderHTTP: Sendable {
+    static let grokBuildBillingURL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+    static let allowedUsageURLs: Set<String> = [
+        "https://api.anthropic.com/api/oauth/usage",
+        "https://chatgpt.com/backend-api/wham/usage",
+        grokBuildBillingURL,
+    ]
+    static let blockedEndpoint = "Usage request blocked: endpoint is not allowlisted"
+    static let requestTimeout: TimeInterval = 20
+
+    static func allows(_ url: URL) -> Bool {
+        guard url.scheme == "https",
+            url.user == nil,
+            url.password == nil,
+            url.port == nil,
+            (url.fragment ?? "").isEmpty
+        else { return false }
+        let absolute = url.absoluteString
+        guard allowedUsageURLs.contains(absolute) else { return false }
+        if url.query != nil {
+            return absolute == grokBuildBillingURL
+        }
+        return true
+    }
+
+    /// Retry-After is delay-seconds or an IMF-fixdate. Anything else is ignored so the store can pick its own cooldown.
+    static func retryAfterSeconds(_ value: String?, now: Date) -> TimeInterval? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let seconds: TimeInterval
+        if raw.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) {
+            guard let parsed = TimeInterval(raw), parsed.isFinite else { return nil }
+            seconds = parsed
+        } else {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "GMT")
+            formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+            guard let date = formatter.date(from: raw) else { return nil }
+            seconds = date.timeIntervalSince(now)
+        }
+        guard seconds.isFinite, seconds >= 0 else { return nil }
+        return min(seconds, 3600)
+    }
+
+    static func makeConfiguration() -> URLSessionConfiguration {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        config.urlCache = nil
+        config.urlCredentialStorage = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.timeoutIntervalForRequest = requestTimeout
+        config.timeoutIntervalForResource = requestTimeout
+        return config
+    }
+
     static func get(url: URL, headers: [String: String], authFailed: String) async throws -> Data {
-        var request = URLRequest(url: url, timeoutInterval: 20)
+        #if AGENTNOTCH_DEMO
+        throw UsageProviderError.unavailable("Demo mode does not access accounts")
+        #else
+        guard allows(url) else {
+            throw UsageProviderError.unavailable(blockedEndpoint)
+        }
+        var request = URLRequest(url: url, timeoutInterval: requestTimeout)
         request.setValue("AgentNotch/1.0", forHTTPHeaderField: "User-Agent")
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
+        let delegate = RedirectRejector()
+        let session = URLSession(
+            configuration: makeConfiguration(),
+            delegate: delegate,
+            delegateQueue: nil
+        )
+        defer { session.finishTasksAndInvalidate() }
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             throw UsageProviderError.badResponse("request failed")
         }
         guard let http = response as? HTTPURLResponse else {
             throw UsageProviderError.badResponse("missing HTTP response")
         }
+        if (300...399).contains(http.statusCode) {
+            throw UsageProviderError.badResponse("redirect rejected")
+        }
         switch http.statusCode {
         case 200...299:
             return data
         case 401, 403:
             throw UsageProviderError.needsAuth(authFailed)
+        case 429:
+            throw UsageProviderError.rateLimited(
+                retryAfter: retryAfterSeconds(http.value(forHTTPHeaderField: "Retry-After"), now: Date())
+            )
         default:
             throw UsageProviderError.badResponse("HTTP \(http.statusCode)")
         }
+        #endif
     }
+}
+
+/// Refuses every redirect. A 3xx must not be followed, including to another allowlisted host.
+final class ProviderHTTPRedirectRejector: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+}
+
+extension ProviderHTTP {
+    typealias RedirectRejector = ProviderHTTPRedirectRejector
 }
 
 nonisolated enum ReadonlySQLite: Sendable {
