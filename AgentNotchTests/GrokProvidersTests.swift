@@ -119,4 +119,75 @@ struct GrokProvidersTests {
             Issue.record("unexpected \(error)")
         }
     }
+
+    private static let expiredAuth = #"{"https://auth.x.ai::id":{"key":"old","expires_at":"2000-01-01T00:00:00Z"}}"#
+    private static let liveAuth = #"{"https://auth.x.ai::id":{"key":"renewed","expires_at":"2099-01-01T00:00:00Z"}}"#
+
+    @Test func expiredTokenIsRenewedByTheCLIOnce() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("auth.json")
+        try Data(Self.expiredAuth.utf8).write(to: url)
+        let runs = Counter()
+        let renewal = GrokCLIRenewal(runCLI: {
+            runs.increment()
+            try? Data(Self.liveAuth.utf8).write(to: url)
+        })
+        let provider = GrokBuildProvider(authURL: url, renewal: renewal)
+        let session = try await provider.session()
+        #expect(session.accessToken == "renewed")
+        _ = try await provider.session()
+        #expect(runs.value == 1)
+    }
+
+    @Test func liveTokenDoesNotLaunchTheCLI() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("auth.json")
+        try Data(Self.liveAuth.utf8).write(to: url)
+        let runs = Counter()
+        let provider = GrokBuildProvider(authURL: url, renewal: GrokCLIRenewal(runCLI: { runs.increment() }))
+        _ = try await provider.session()
+        #expect(runs.value == 0)
+    }
+
+    @Test func signedOutCLIIsRetriedOnlyAfterTheWindow() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("auth.json")
+        try Data(Self.expiredAuth.utf8).write(to: url)
+        let runs = Counter()
+        let clock = Counter()
+        let renewal = GrokCLIRenewal(
+            clock: { Date(timeIntervalSince1970: Double(clock.value)) },
+            runCLI: { runs.increment() }
+        )
+        let provider = GrokBuildProvider(authURL: url, renewal: renewal)
+        for _ in 0..<3 {
+            await expectSignInAsync { _ = try await provider.session() }
+        }
+        #expect(runs.value == 1)
+        clock.add(Int(GrokCLIRenewal.minInterval))
+        await expectSignInAsync { _ = try await provider.session() }
+        #expect(runs.value == 2)
+    }
+
+    private func expectSignInAsync(_ body: () async throws -> Void) async {
+        do {
+            try await body()
+            Issue.record("expected Grok CLI sign-in")
+        } catch let error as UsageProviderError {
+            #expect(error.message == GrokBuildAuth.needsSignIn)
+        } catch {
+            Issue.record("unexpected \(error)")
+        }
+    }
+}
+
+private nonisolated final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { add(1) }
+    func add(_ amount: Int) { lock.withLock { count += amount } }
 }

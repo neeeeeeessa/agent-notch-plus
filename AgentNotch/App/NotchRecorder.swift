@@ -6,7 +6,7 @@ import SwiftUI
 /// screen, and a screen recording would not be more faithful anyway: this is the same
 /// `NotchRootView` the window shows, sampled at the same dates, with its timers running.
 ///
-/// Post `app.lucabecker.AgentNotch.recordScenario` with the scenario as the object and the
+/// Post `io.github.neeeeeeessa.AgentNotchPlus.recordScenario` with the scenario as the object and the
 /// output folder under `userInfo["directory"]`. The folder ends up with `frame-NNNN.png` and
 /// `frames.txt`, an ffmpeg concat list carrying each frame's real duration. The frames are
 /// transparent; `Design/peek-*.mp4` were laid over a flat colour like so:

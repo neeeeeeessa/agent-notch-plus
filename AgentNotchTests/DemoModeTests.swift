@@ -15,13 +15,13 @@ struct DemoModeTests {
     }
 
     @Test func keychainReadReturnsNil() throws {
-        let service = "app.lucabecker.AgentNotch.demo-guard.\(UUID().uuidString)"
+        let service = "io.github.neeeeeeessa.AgentNotchPlus.demo-guard.\(UUID().uuidString)"
         let data = try Keychain.data(service: service, account: "synthetic")
         #expect(data == nil)
     }
 
     @Test func keychainSetThrows() {
-        let service = "app.lucabecker.AgentNotch.demo-guard.\(UUID().uuidString)"
+        let service = "io.github.neeeeeeessa.AgentNotchPlus.demo-guard.\(UUID().uuidString)"
         #expect(throws: (any Error).self) {
             try Keychain.set(Data("synthetic".utf8), service: service, account: "synthetic")
         }

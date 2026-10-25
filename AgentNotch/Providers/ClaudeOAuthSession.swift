@@ -27,7 +27,7 @@ nonisolated struct ClaudeOAuthSession: Codable, Equatable, Sendable {
 }
 
 nonisolated enum ClaudeOAuthStore {
-    static let service = "app.lucabecker.AgentNotch.claude-oauth"
+    static let service = "io.github.neeeeeeessa.AgentNotchPlus.claude-oauth"
     static let account = "claude"
     static let claudeCodeService = "Claude Code-credentials"
     private static let skipImportKey = "skipClaudeCodeImport"

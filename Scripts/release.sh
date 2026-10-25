@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sign, notarize, and publish Agent Notch from this Mac.
+# Sign, notarize, and publish Agent Notch Plus from this Mac.
 #
-#   Scripts/release.sh v1.0
+#   Scripts/release.sh v1.2
 #
-# GitHub hosts the zip (Releases) and the Sparkle feed (Pages).
-# Developer ID, the App Store Connect API key, and the Sparkle EdDSA
-# private key stay on this Mac.
+# GitHub Releases host the zip. GitHub Pages (branch gh-pages) hosts the
+# Sparkle feed. The Developer ID certificate, the notary credentials and the
+# Sparkle private key stay in this Mac's keychain.
+#
+# One-time setup, all kept out of git:
+#   .env                      TEAM_ID=<your 10-character Apple team ID>
+#   Developer ID Application  Xcode > Settings > Accounts > Manage Certificates
+#   notary credentials        xcrun notarytool store-credentials agent-notch-plus
+#   Sparkle key               generate_keys --account agent-notch-plus
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -19,88 +25,63 @@ if [[ -f "$ROOT/.env" ]]; then
   set +a
 fi
 
-TEAM_ID="K3386R8W3F"
-FEED_URL="https://updates.lucabecker.dev/appcast.xml"
-PAGES_FALLBACK_URL="https://itslucadev.github.io/AgentNotch/appcast.xml"
-PUBLIC_ED_KEY="T3jmwY3shc3fTshx3FexcYVVrgs39iYTE01bUuAOo0E="
-NOTARY_PROFILE="${NOTARY_PROFILE:-AgentNotch}"
-REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-
-usage() {
-  echo "usage: $0 vMAJOR.MINOR[.PATCH]" >&2
-  exit 1
-}
+REPO="neeeeeeessa/agent-notch-plus"
+REMOTE_URL="https://github.com/${REPO}.git"
+FEED_URL="https://neeeeeeessa.github.io/agent-notch-plus/appcast.xml"
+PUBLIC_ED_KEY="OVOseJWolEBtafbEXSYl16amj/5gMk0CBPvPOFSjPP4="
+SPARKLE_ACCOUNT="agent-notch-plus"
+NOTARY_PROFILE="${NOTARY_PROFILE:-agent-notch-plus}"
+TEAM_ID="${TEAM_ID:-}"
 
 TAG="${1:-}"
-[[ -n "$TAG" ]] || usage
 if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-  echo "tag must match v1.0 or v1.0.0, got: $TAG" >&2
+  echo "usage: $0 vMAJOR.MINOR[.PATCH]" >&2
   exit 1
 fi
 VERSION="${TAG#v}"
-BUILD="$(date -u +%Y%m%d.%H%M)"
+BUILD="$(date -u +%Y%m%d%H%M)"
 PREFIX="https://github.com/${REPO}/releases/download/${TAG}/"
 
-echo "Releasing ${TAG}  marketing=${VERSION}  build=${BUILD}"
+[[ -n "$TEAM_ID" ]] || { echo "Set TEAM_ID in .env" >&2; exit 1; }
 
-branch="$(git rev-parse --abbrev-ref HEAD)"
-if [[ "$branch" != "main" ]]; then
-  echo "release from main (current branch: $branch)" >&2
-  exit 1
-fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "working tree is dirty; commit or stash first" >&2
+  echo "Working tree has changes; commit them first." >&2
   exit 1
 fi
-
-if git show-ref --verify --quiet "refs/tags/${TAG}" || git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
-  echo "tag ${TAG} already exists locally or on origin." >&2
-  echo "If you intend to replace that unpublished release:" >&2
-  echo "  gh release delete ${TAG} --yes --cleanup-tag" >&2
-  echo "  git push origin :refs/tags/${TAG}" >&2
-  echo "  git tag -d ${TAG}" >&2
+published="$(git ls-remote "$REMOTE_URL" refs/heads/main | cut -f1)"
+if [[ "$(git rev-parse HEAD)" != "$published" ]]; then
+  echo "HEAD is not what ${REPO} main has. Push first, then release." >&2
   exit 1
 fi
-
-if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
-  echo "No Developer ID Application identity in the keychain." >&2
-  echo "Run Scripts/setup-release-secrets.sh" >&2
+if git ls-remote --tags "$REMOTE_URL" "refs/tags/${TAG}" | grep -q .; then
+  echo "Tag ${TAG} already exists on ${REPO}." >&2
   exit 1
 fi
-
-if [[ ! -f "$ROOT/.sparkle/ed-private-key" ]]; then
-  echo "missing .sparkle/ed-private-key" >&2
+if ! security find-identity -v -p codesigning | grep -q "Developer ID Application: .*(${TEAM_ID})"; then
+  echo "No Developer ID Application certificate for team ${TEAM_ID} in the keychain." >&2
   exit 1
 fi
-
-if ! curl -fsSI "$FEED_URL" | tr -d '\r' | grep -Eq '^HTTP/.* 200'; then
-  echo "Feed is not live at ${FEED_URL}" >&2
-  echo "Add a Hostinger CNAME: host updates  target itslucadev.github.io" >&2
-  echo "Wait until GitHub issues HTTPS, then:" >&2
-  echo "  curl -sI ${FEED_URL}" >&2
-  echo "Do not ship a public zip until that URL returns 200." >&2
+if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+  echo "No notary credentials named ${NOTARY_PROFILE}. Run:" >&2
+  echo "  xcrun notarytool store-credentials ${NOTARY_PROFILE}" >&2
   exit 1
 fi
 
 DIST="$ROOT/dist"
-APP_DIR="$DIST/export"
-APP="$APP_DIR/AgentNotch.app"
 ARCHIVE="$DIST/AgentNotch.xcarchive"
+EXPORT="$DIST/export"
+APP="$EXPORT/AgentNotch.app"
 UPDATES="$DIST/updates"
-ZIP="$UPDATES/AgentNotch.zip"
-NOTARY_ZIP="$DIST/AgentNotch-notary.zip"
-WT="${TMPDIR:-/tmp}/agentnotch-appcast-$$"
+ZIP="$UPDATES/AgentNotchPlus.zip"
+WT="$DIST/gh-pages"
 
-cleanup() {
-  git worktree remove --force "$WT" >/dev/null 2>&1 || true
-  rm -rf "$WT"
-}
+cleanup() { git worktree remove --force "$WT" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 rm -rf "$DIST"
-mkdir -p "$APP_DIR" "$UPDATES"
+mkdir -p "$EXPORT" "$UPDATES"
 
-echo "Archiving…"
+echo "Archiving ${VERSION} (${BUILD})…"
 xcodebuild archive \
   -project AgentNotch.xcodeproj \
   -scheme AgentNotch \
@@ -115,135 +96,81 @@ xcodebuild archive \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   OTHER_CODE_SIGN_FLAGS="--timestamp"
 
+cat > "$DIST/ExportOptions.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key><string>developer-id</string>
+	<key>teamID</key><string>${TEAM_ID}</string>
+	<key>signingStyle</key><string>manual</string>
+	<key>signingCertificate</key><string>Developer ID Application</string>
+</dict>
+</plist>
+EOF
+
 echo "Exporting…"
-xcodebuild -exportArchive \
-  -archivePath "$ARCHIVE" \
-  -exportPath "$APP_DIR" \
-  -exportOptionsPlist Config/ExportOptions-DeveloperID.plist
+xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath "$EXPORT" -exportOptionsPlist "$DIST/ExportOptions.plist"
 
 PLIST="$APP/Contents/Info.plist"
-actual_ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
-actual_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
-actual_feed="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$PLIST")"
-actual_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$PLIST")"
-if [[ "$actual_ver" != "$VERSION" ]]; then
-  echo "CFBundleShortVersionString is ${actual_ver}, expected ${VERSION}" >&2
-  exit 1
-fi
-if [[ "$actual_build" != "$BUILD" ]]; then
-  echo "CFBundleVersion is ${actual_build}, expected ${BUILD}" >&2
-  exit 1
-fi
-if [[ "$actual_feed" != "$FEED_URL" ]]; then
-  echo "SUFeedURL is ${actual_feed}, expected ${FEED_URL}" >&2
-  exit 1
-fi
-if [[ "$actual_key" != "$PUBLIC_ED_KEY" ]]; then
-  echo "SUPublicEDKey does not match the expected public key" >&2
-  exit 1
-fi
-
-authority="$(codesign -dvv "$APP" 2>&1 || true)"
-if ! grep -q "Developer ID Application" <<<"$authority"; then
-  echo "exported app is not signed with Developer ID Application" >&2
-  echo "$authority" >&2
-  exit 1
-fi
-if ! grep -q "$TEAM_ID" <<<"$authority"; then
-  echo "exported app is not signed with team ${TEAM_ID}" >&2
-  exit 1
-fi
+check() {
+  local key="$1" expected="$2" actual
+  actual="$(/usr/libexec/PlistBuddy -c "Print :${key}" "$PLIST")"
+  [[ "$actual" == "$expected" ]] || { echo "${key} is ${actual}, expected ${expected}" >&2; exit 1; }
+}
+check CFBundleShortVersionString "$VERSION"
+check CFBundleVersion "$BUILD"
+check CFBundleIdentifier "io.github.neeeeeeessa.AgentNotchPlus"
+check SUFeedURL "$FEED_URL"
+check SUPublicEDKey "$PUBLIC_ED_KEY"
+codesign -dvv "$APP" 2>&1 | grep -q "Developer ID Application: .*(${TEAM_ID})" \
+  || { echo "Exported app is not signed with Developer ID for team ${TEAM_ID}" >&2; exit 1; }
 
 echo "Notarizing…"
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$NOTARY_ZIP"
-xcrun notarytool submit "$NOTARY_ZIP" \
-  --keychain-profile "$NOTARY_PROFILE" \
-  --wait
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$DIST/notary.zip"
+xcrun notarytool submit "$DIST/notary.zip" --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$APP"
 xcrun stapler validate "$APP"
 spctl -a -vv -t install "$APP"
 
-echo "Zipping…"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
-echo "Preparing appcast worktree…"
-git fetch origin appcast:appcast 2>/dev/null || true
-if git show-ref --verify --quiet refs/heads/appcast; then
-  git worktree add "$WT" appcast
+echo "Writing the feed…"
+git fetch "$REMOTE_URL" gh-pages:gh-pages 2>/dev/null || true
+if git show-ref --verify --quiet refs/heads/gh-pages; then
+  git worktree add "$WT" gh-pages
 else
   git worktree add --detach "$WT" HEAD
-  git -C "$WT" checkout --orphan appcast
-  git -C "$WT" rm -rf --ignore-unmatch . >/dev/null 2>&1 || true
-  find "$WT" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+  git -C "$WT" checkout -q --orphan gh-pages
+  git -C "$WT" rm -rfq . >/dev/null 2>&1 || true
 fi
-
-if [[ -f "$WT/appcast.xml" ]]; then
-  cp "$WT/appcast.xml" "$UPDATES/appcast.xml"
-fi
-
-Scripts/sparkle-appcast.sh "$UPDATES" "$PREFIX"
-
-rm -rf "$UPDATES"/*.delta "$UPDATES"/old_updates
+[[ -f "$WT/appcast.xml" ]] && cp "$WT/appcast.xml" "$UPDATES/appcast.xml"
+"$DIST/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast" \
+  --account "$SPARKLE_ACCOUNT" \
+  --download-url-prefix "$PREFIX" \
+  --link "https://github.com/${REPO}" \
+  --maximum-deltas 0 \
+  "$UPDATES"
+grep -q "<sparkle:version>${BUILD}</sparkle:version>" "$UPDATES/appcast.xml" \
+  || { echo "The feed does not list build ${BUILD}" >&2; exit 1; }
 cp "$UPDATES/appcast.xml" "$WT/appcast.xml"
-printf 'updates.lucabecker.dev\n' > "$WT/CNAME"
-git -C "$WT" add appcast.xml CNAME
-if git -C "$WT" diff --cached --quiet; then
-  echo "appcast.xml unchanged" >&2
-  exit 1
-fi
-git -C "$WT" commit -m "Update appcast to ${TAG}"
+touch "$WT/.nojekyll"
+git -C "$WT" add appcast.xml .nojekyll
+git -C "$WT" commit -qm "Feed: ${TAG}"
 
-echo "Publishing tag and zip…"
-git tag -a "$TAG" -m "Agent Notch ${VERSION}"
-git push origin "refs/tags/${TAG}"
+echo "Publishing ${TAG}…"
+gh release create "$TAG" "$ZIP" --repo "$REPO" --target "$published" --title "Agent Notch Plus ${VERSION}" --generate-notes
+git -C "$WT" push -q "$REMOTE_URL" HEAD:gh-pages
 
-if gh release view "$TAG" >/dev/null 2>&1; then
-  gh release upload "$TAG" "$ZIP" --clobber
-else
-  gh release create "$TAG" "$ZIP" \
-    --title "$VERSION" \
-    --generate-notes \
-    --draft
-fi
-
-gh release edit "$TAG" --draft=false
-
-echo "Publishing feed…"
-git -C "$WT" push origin HEAD:appcast
-
-gh workflow run pages.yml --ref main
-echo "Waiting for Pages workflow…"
-sleep 8
-RUN_ID="$(gh run list --workflow pages.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
-gh run watch "$RUN_ID" --exit-status
-
-feed_has_build() {
-  local url="$1"
-  curl -fsSL "$url" | grep -q "<sparkle:version>${BUILD}</sparkle:version>"
-}
-
-echo "Waiting for live feed…"
-ok_custom=0
-ok_pages=0
-for _ in $(seq 1 24); do
-  if feed_has_build "$FEED_URL"; then ok_custom=1; fi
-  if feed_has_build "$PAGES_FALLBACK_URL"; then ok_pages=1; fi
-  if [[ "$ok_custom" -eq 1 ]]; then
-    break
+echo "Waiting for the live feed…"
+for _ in $(seq 1 36); do
+  if curl -fsSL "$FEED_URL" 2>/dev/null | grep -q "<sparkle:version>${BUILD}</sparkle:version>"; then
+    echo "Released ${TAG}."
+    echo "Download: ${PREFIX}AgentNotchPlus.zip"
+    echo "Feed:     ${FEED_URL}"
+    exit 0
   fi
-  sleep 5
+  sleep 10
 done
-
-if [[ "$ok_custom" -ne 1 ]]; then
-  echo "Live feed does not yet list build ${BUILD} at ${FEED_URL}" >&2
-  if [[ "$ok_pages" -eq 1 ]]; then
-    echo "GitHub Pages is serving the new item at ${PAGES_FALLBACK_URL}." >&2
-    echo "Finish the Hostinger CNAME (updates -> itslucadev.github.io) and HTTPS." >&2
-  fi
-  echo "The zip is already on the GitHub release. Sparkle cannot see it until the custom domain returns this build." >&2
-  exit 1
-fi
-
-echo "Release ${TAG} is live."
-echo "Feed: ${FEED_URL}"
-echo "Zip:  ${PREFIX}AgentNotch.zip"
+echo "The release is up, but ${FEED_URL} does not list build ${BUILD} yet. Check GitHub Pages for ${REPO}." >&2
+exit 1

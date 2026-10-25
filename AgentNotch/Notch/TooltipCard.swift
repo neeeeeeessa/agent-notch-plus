@@ -14,6 +14,8 @@ struct TooltipCard: View {
     let direction: TooltipDirection
     /// Where the tail apex sits along the card's notch-facing edge, measured from that edge's start.
     let tailCenter: CGFloat
+    /// The reading is older because the owning tool's sign-in expired, not because a read failed.
+    var awaitingOwnerTool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -40,9 +42,15 @@ struct TooltipCard: View {
                 }
                 // The Grok card reports a failed update on its own source line.
                 if stale, grokBilling == nil {
-                    note(
-                        "Couldn't read usage; showing the last reading from \(snapshot.fetchedAt, format: .relative(presentation: .named))."
-                    )
+                    if awaitingOwnerTool {
+                        note(
+                            "Last updated \(snapshot.fetchedAt, format: .relative(presentation: .named)). Updates when you next use \(id.renewingTool)."
+                        )
+                    } else {
+                        note(
+                            "Couldn't read usage; showing the last reading from \(snapshot.fetchedAt, format: .relative(presentation: .named))."
+                        )
+                    }
                 }
             case .waiting:
                 note("Waiting for the first reading")
@@ -164,7 +172,9 @@ struct TooltipCard: View {
                 .padding(.top, 5)
             }
             Text(
-                "\(stale ? "Couldn't update · last reading" : "Live from Grok billing ·") \(snapshot.fetchedAt, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))"
+                awaitingOwnerTool
+                    ? "Last updated \(snapshot.fetchedAt, format: .relative(presentation: .numeric, unitsStyle: .abbreviated)) · updates when you next use \(id.renewingTool)"
+                    : "\(stale ? "Couldn't update · last reading" : "Live from Grok billing ·") \(snapshot.fetchedAt, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))"
             )
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.5))

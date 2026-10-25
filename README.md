@@ -3,7 +3,7 @@
 Agent Notch Plus puts Claude, Codex, and Grok usage in the Mac notch.
 
 <p align="center">
-  <img src="Design/readme/hover.gif" alt="Hover the closed notch, then Claude, Codex, and Grok" width="460" />
+  <img src="docs/hover.gif" alt="Hover the closed notch, then Claude, Codex, and Grok" width="460" />
 </p>
 
 [Agent Notch Plus](https://github.com/neeeeeeessa/agent-notch-plus) is developed by [Vanessa Simões](https://x.com/enchantedcode). Forked from [Agent Notch](https://github.com/itslucadev/AgentNotch) by Luca Becker.
@@ -22,15 +22,16 @@ Agent Notch's third circle is Cursor, and its rings turn green, yellow, and red 
 
 - The circles are Claude, Codex, and Grok. Cursor is a row on the Grok card. That card is one weekly allowance shared by Grok Build, Grok Bot, and Cursor, with the per-product split the server reports.
 - Each provider has a fixed color. The color stays put as usage rises.
-- Usage access starts off. You turn it on for each provider. A token goes only to that provider's usage host. The app does not refresh tokens.
+- Usage access starts off. You turn it on for each provider. A token goes only to that provider's usage host. The app never refreshes a token itself. When the Grok sign-in expires, it asks the Grok CLI to renew its own sign-in.
+- After a restart, each circle shows its last reading, dimmed and dated, until a new one arrives. When Claude Code's or Codex's sign-in has expired, the card says the numbers update when you next use that tool.
 - When a usage endpoint rate-limits, the last good reading stays bright through the cooldown.
 - A click refreshes only the circle you hit.
 - The mascot stays still while you are away.
-- Update checks are off. `Config/Info.plist` still lists the upstream appcast. This build does not contact it.
+- Downloads from this fork's Releases update themselves from this fork's own feed. Builds you make yourself in Xcode do not check for updates.
 
 ## Requirements
 
-macOS 26 or later, and Xcode to build. Sign in to Claude Code, Codex, or the Grok CLI before you expect live numbers. There is no notarized download of this fork.
+macOS 26 or later, and Xcode to build. Sign in to Claude Code, Codex, or the Grok CLI before you expect live numbers. Download the latest signed and notarized build from [Releases](https://github.com/neeeeeeessa/agent-notch-plus/releases); it keeps itself up to date.
 
 ## Build
 
@@ -40,7 +41,7 @@ cd agent-notch-plus
 open AgentNotch.xcodeproj
 ```
 
-Select the AgentNotch target, open Signing & Capabilities, and choose your own Team. The project still names the upstream development team. That signature will not build for you.
+Select the AgentNotch target, open Signing & Capabilities, and choose your own Team.
 
 Then use Product, Run.
 
@@ -61,3 +62,7 @@ Open Settings from the menu bar icon, or from the Dock icon if you left the app 
 - Claude asks macOS for permission to read the Claude Code keychain item.
 - Codex reads `~/.codex/auth.json` when that file is readable. Otherwise it asks for the Codex Auth keychain item.
 - Grok reads `~/.grok/auth.json`. Sign in with the Grok CLI before you turn that switch on.
+
+## Releasing
+
+Maintainers publish a signed, notarized build with `Scripts/release.sh v1.2`. The script lists its one-time setup at the top. The signing certificate, notary credentials and update key stay in the maintainer's keychain, and the team ID lives in an uncommitted `.env`.

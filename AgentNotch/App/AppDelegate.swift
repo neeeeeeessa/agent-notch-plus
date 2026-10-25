@@ -53,7 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 CodexLocalProvider(),
                 GrokBuildProvider(),
             ],
-            enabledProviders: preferences.usageAccessProviders
+            enabledProviders: preferences.usageAccessProviders,
+            savedReadings: .standard
         )
         #endif
         self.preferences = preferences
@@ -209,14 +210,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installCaptureDemoHook() {
         let center = DistributedNotificationCenter.default()
         center.addObserver(
-            forName: Notification.Name("app.lucabecker.AgentNotch.playDemo"),
+            forName: Notification.Name("io.github.neeeeeeessa.AgentNotchPlus.playDemo"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
             self?.notch.model.playCaptureDemo()
         }
         center.addObserver(
-            forName: Notification.Name("app.lucabecker.AgentNotch.capturePose"),
+            forName: Notification.Name("io.github.neeeeeeessa.AgentNotchPlus.capturePose"),
             object: nil,
             queue: .main
         ) { [weak self] note in
@@ -228,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         center.addObserver(
-            forName: Notification.Name("app.lucabecker.AgentNotch.previewLimit"),
+            forName: Notification.Name("io.github.neeeeeeessa.AgentNotchPlus.previewLimit"),
             object: nil,
             queue: .main
         ) { [weak self] note in
@@ -236,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.notch.model.previewLimitNotification(kind)
         }
         center.addObserver(
-            forName: Notification.Name("app.lucabecker.AgentNotch.previewClip"),
+            forName: Notification.Name("io.github.neeeeeeessa.AgentNotchPlus.previewClip"),
             object: nil,
             queue: .main
         ) { [weak self] note in
@@ -244,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.notch.model.previewClip(clip)
         }
         center.addObserver(
-            forName: Notification.Name("app.lucabecker.AgentNotch.recordScenario"),
+            forName: Notification.Name("io.github.neeeeeeessa.AgentNotchPlus.recordScenario"),
             object: nil,
             queue: .main
         ) { [weak self] note in

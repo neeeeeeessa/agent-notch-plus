@@ -10,27 +10,25 @@ final class AppUpdater: NSObject, SPUStandardUserDriverDelegate, SPUUpdaterDeleg
     private let restorePresence: () -> Void
 
     var updater: SPUUpdater? { controller?.updater }
-    var canCheckForUpdates: Bool { false }
+    var canCheckForUpdates: Bool { updater?.canCheckForUpdates ?? false }
 
+    /// Only signed release builds update themselves, from the feed in `Config/Info.plist`.
+    /// Debug and demo builds never start Sparkle, so local test installs stay as built.
     init(restorePresence: @escaping () -> Void) {
         self.restorePresence = restorePresence
         super.init()
+        #if !DEBUG && !AGENTNOTCH_DEMO
+            controller = SPUStandardUpdaterController(
+                startingUpdater: true,
+                updaterDelegate: self,
+                userDriverDelegate: self
+            )
+        #endif
     }
 
-    func checkForUpdates() {}
-
-    #if DEBUG
-        func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
-            guard updateCheck == .updatesInBackground else { return }
-            throw NSError(
-                domain: "app.lucabecker.AgentNotch.debug",
-                code: 1,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "Debug builds skip scheduled production update checks."
-                ]
-            )
-        }
-    #endif
+    func checkForUpdates() {
+        controller?.checkForUpdates(nil)
+    }
 
     func standardUserDriverWillHandleShowingUpdate(
         _ handleShowingUpdate: Bool,

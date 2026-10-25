@@ -6,7 +6,7 @@ import os
 /// Owns the providers, schedules refreshes and keeps the last good reading per provider.
 @Observable
 final class UsageStore {
-    private static let log = Logger(subsystem: "app.lucabecker.AgentNotch", category: "UsageStore")
+    private static let log = Logger(subsystem: "io.github.neeeeeeessa.AgentNotchPlus", category: "UsageStore")
     static let disconnectedStatus = "Disconnected"
 
     /// Regular polling cadence. Providers are cheap local reads plus one small HTTPS call.
@@ -21,6 +21,8 @@ final class UsageStore {
 
     private(set) var statuses: [ProviderID: ProviderStatus] = [:]
     private(set) var refreshing: Set<ProviderID> = []
+    /// Showing an older reading because the owning tool's sign-in expired. Using that tool renews it.
+    private(set) var awaitingOwnerTool: Set<ProviderID> = []
     /// Last non-empty batch of limit transitions. Tests read this; the notch consumes `onLimitEvents`.
     private(set) var latestLimitEvents: [LimitEvent] = []
     /// Increments only when a transition is published, so a silent refresh is observable.
@@ -44,22 +46,35 @@ final class UsageStore {
     private let revokeCredential: (ProviderID) -> Void
     /// Clock for rate-limit decisions. Tests pass a fake clock.
     private let now: () -> Date
+    /// Where the last reading per provider survives a restart. nil keeps readings in RAM only.
+    private let savedReadings: UserDefaults?
+    static let savedReadingsKey = "lastReadings.v1"
+    /// Shown from `savedReadings` and not yet replaced. No account key survives a restart, so these skip the account check.
+    private var restored: Set<ProviderID> = []
 
     init(
         providers: [any UsageProvider],
         defaults: UserDefaults = .standard,
         enabledProviders: Set<ProviderID>? = nil,
         revokeCredential: @escaping (ProviderID) -> Void = { Keychain.clearApprovedSession(provider: $0) },
-        now: @escaping () -> Date = { Date() }
+        now: @escaping () -> Date = { Date() },
+        savedReadings: UserDefaults? = nil
     ) {
         self.providers = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0) })
         self.revokeCredential = revokeCredential
         self.now = now
+        self.savedReadings = savedReadings
         _ = defaults
         let enabled = enabledProviders ?? Set(self.providers.keys)
         self.enabledProviders = enabled
+        let saved = loadSavedReadings()
         for id in self.providers.keys {
-            statuses[id] = enabled.contains(id) ? .waiting : .failed(Self.disconnectedStatus)
+            if enabled.contains(id), let snapshot = saved[id] {
+                statuses[id] = .ready(snapshot, stale: true)
+                restored.insert(id)
+            } else {
+                statuses[id] = enabled.contains(id) ? .waiting : .failed(Self.disconnectedStatus)
+            }
         }
     }
 
@@ -185,6 +200,9 @@ final class UsageStore {
         cooldownBinding.removeValue(forKey: id)
         statuses[id] = .failed(Self.disconnectedStatus)
         latestLimitEvents.removeAll { $0.provider == id }
+        awaitingOwnerTool.remove(id)
+        restored.remove(id)
+        saveReading(nil, for: id)
     }
 
     private static let unconfirmedAccountStatus =
@@ -207,9 +225,14 @@ final class UsageStore {
             }
             // A successful read carries its own binding, so no second local auth read is needed.
             // Readings from different accounts must not produce exhausted or reset transitions.
-            let sameAccount = previous?.accountBinding == snapshot.accountBinding ? previous : nil
+            // A reading restored after a restart is not a baseline, so overnight resets do not announce on launch.
+            let sameAccount =
+                !restored.contains(id) && previous?.accountBinding == snapshot.accountBinding ? previous : nil
             let events = LimitEvent.detect(previous: sameAccount, current: snapshot, now: Date())
             statuses[id] = .ready(snapshot, stale: snapshot.sourceIsStale)
+            awaitingOwnerTool.remove(id)
+            restored.remove(id)
+            saveReading(snapshot, for: id)
             Self.log.notice("\(id.rawValue, privacy: .public) usage ready")
             if !events.isEmpty {
                 latestLimitEvents = events
@@ -218,11 +241,18 @@ final class UsageStore {
             }
         case .failure(let error):
             let binding = providers[id]?.currentAccountBinding() ?? .notApplicable
-            let previousForAccount = previousReading(previous, binding: binding)
+            let previousForAccount = previousReading(previous, for: id, binding: binding)
+            awaitingOwnerTool.remove(id)
             switch error {
             case UsageProviderError.needsAuth(let message):
                 revokeCredential(id)
-                statuses[id] = .needsAuth(message)
+                // The last reading stays up, dated, until the owning tool renews its sign-in.
+                if let previous {
+                    statuses[id] = .ready(previous, stale: true)
+                    awaitingOwnerTool.insert(id)
+                } else {
+                    statuses[id] = .needsAuth(message)
+                }
                 Self.log.notice("\(id.rawValue, privacy: .public) usage needs authentication")
             case UsageProviderError.rateLimited(let retryAfter):
                 let current = now()
@@ -257,7 +287,10 @@ final class UsageStore {
     }
 
     /// Keeps a reading only when it still belongs to the account the provider would fetch.
-    private func previousReading(_ previous: ProviderSnapshot?, binding: AccountBindingCheck) -> ProviderSnapshot? {
+    private func previousReading(_ previous: ProviderSnapshot?, for id: ProviderID, binding: AccountBindingCheck)
+        -> ProviderSnapshot?
+    {
+        if restored.contains(id) { return previous }
         switch binding {
         case .notApplicable:
             return previous
@@ -272,5 +305,32 @@ final class UsageStore {
             return Self.unconfirmedAccountStatus
         }
         return fallback
+    }
+
+    private func loadSavedReadings() -> [ProviderID: ProviderSnapshot] {
+        guard let data = savedReadings?.data(forKey: Self.savedReadingsKey),
+            let decoded = try? JSONDecoder().decode([String: ProviderSnapshot].self, from: data)
+        else { return [:] }
+        var readings: [ProviderID: ProviderSnapshot] = [:]
+        for (key, snapshot) in decoded {
+            guard let id = ProviderID(rawValue: key), snapshot.id == id else { continue }
+            readings[id] = snapshot
+        }
+        return readings
+    }
+
+    /// Usage numbers and times only. Account names and live sessions are not written; the account key is never encoded.
+    private func saveReading(_ snapshot: ProviderSnapshot?, for id: ProviderID) {
+        guard let savedReadings else { return }
+        var readings = Dictionary(uniqueKeysWithValues: loadSavedReadings().map { ($0.key.rawValue, $0.value) })
+        if var snapshot {
+            snapshot.account = nil
+            snapshot.sessions = []
+            readings[id.rawValue] = snapshot
+        } else {
+            readings.removeValue(forKey: id.rawValue)
+        }
+        guard let data = try? JSONEncoder().encode(readings) else { return }
+        savedReadings.set(data, forKey: Self.savedReadingsKey)
     }
 }

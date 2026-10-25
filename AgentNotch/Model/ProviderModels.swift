@@ -43,6 +43,15 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
         }
     }
 
+    /// The tool whose use renews the sign-in Agent Notch reads.
+    var renewingTool: String {
+        switch self {
+        case .claude: "Claude Code"
+        case .codex: "Codex"
+        case .grokBuild: "the Grok CLI"
+        }
+    }
+
     var signInHint: String {
         switch self {
         case .claude: "Sign in with Claude to read your usage"

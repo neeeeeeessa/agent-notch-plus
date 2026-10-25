@@ -10,7 +10,7 @@ final class NotchViewModel {
     let store: UsageStore
     var openSettings: () -> Void = {}
 
-    private static let log = Logger(subsystem: "app.lucabecker.AgentNotch", category: "Notch")
+    private static let log = Logger(subsystem: "io.github.neeeeeeessa.AgentNotchPlus", category: "Notch")
 
     private(set) var isExpanded: Bool {
         didSet {
@@ -59,6 +59,10 @@ final class NotchViewModel {
 
     func status(for id: ProviderID) -> ProviderStatus {
         previewStatuses[id] ?? store.status(for: id)
+    }
+
+    func isAwaitingOwnerTool(_ id: ProviderID) -> Bool {
+        previewStatuses[id] == nil && store.awaitingOwnerTool.contains(id)
     }
 
     /// Mood at the last change seen, so the next change can pick its cue.
@@ -273,7 +277,7 @@ final class NotchViewModel {
     }
 
     /// Walks the notch through collapsed → expanded → tooltips → settings orb → collapsed.
-    /// Posted from outside via `app.lucabecker.AgentNotch.playDemo` for marketing captures.
+    /// Posted from outside via `io.github.neeeeeeessa.AgentNotchPlus.playDemo` for marketing captures.
     func playCaptureDemo() {
         cancelNotification(restore: false)
         demoWork?.cancel()

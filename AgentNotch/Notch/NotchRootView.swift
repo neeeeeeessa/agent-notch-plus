@@ -89,7 +89,8 @@ struct NotchRootView: View {
                 id: id,
                 status: model.status(for: id),
                 direction: layout.tooltipDirection,
-                tailCenter: layout.tooltipTailCenter(for: index)
+                tailCenter: layout.tooltipTailCenter(for: index),
+                awaitingOwnerTool: model.isAwaitingOwnerTool(id)
             )
             .frame(width: rect.width)
             .onGeometryChange(for: CGFloat.self) {

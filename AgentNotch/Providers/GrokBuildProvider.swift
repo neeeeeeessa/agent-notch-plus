@@ -271,23 +271,85 @@ enum GrokBuildUsage {
     }
 }
 
-/// Reads the shared Grok allowance with the CLI access token. Does not refresh or store it.
+/// Asks the Grok CLI to renew its own sign-in when the saved access token has expired.
+/// The CLI stays the only reader and writer of its refresh token, so the app never races it on rotation.
+nonisolated final class GrokCLIRenewal: @unchecked Sendable {
+    static let shared = GrokCLIRenewal()
+    /// One attempt per window, so a signed-out CLI is not launched on every poll.
+    static let minInterval: TimeInterval = 600
+    static let candidatePaths = [
+        "/opt/homebrew/bin/grok",
+        "/usr/local/bin/grok",
+        NSHomeDirectory() + "/.local/bin/grok",
+    ]
+
+    private let lock = NSLock()
+    private var lastAttempt: Date?
+    private let clock: @Sendable () -> Date
+    private let runCLI: @Sendable () -> Void
+
+    init(
+        clock: @escaping @Sendable () -> Date = { Date() },
+        runCLI: @escaping @Sendable () -> Void = { GrokCLIRenewal.runModelsCommand() }
+    ) {
+        self.clock = clock
+        self.runCLI = runCLI
+    }
+
+    /// Returns false when an attempt already ran inside `minInterval`.
+    func renew() async -> Bool {
+        let now = clock()
+        let allowed: Bool = lock.withLock {
+            if let last = lastAttempt, now.timeIntervalSince(last) < Self.minInterval { return false }
+            lastAttempt = now
+            return true
+        }
+        guard allowed else { return false }
+        let run = runCLI
+        await Task.detached { run() }.value
+        return true
+    }
+
+    /// `grok models` sends no prompt. Loading the signed-in config renews an expired token as a side effect.
+    static func runModelsCommand() {
+        guard let path = candidatePaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            return
+        }
+        _ = LocalSecurityTool.run(
+            executable: URL(fileURLWithPath: path),
+            arguments: ["models"],
+            options: LocalSecurityTool.Options(timeout: 30)
+        )
+    }
+}
+
+/// Reads the shared Grok allowance with the CLI access token. Never reads the refresh token;
+/// an expired token is renewed by the CLI itself through `GrokCLIRenewal`.
 struct GrokBuildProvider: UsageProvider {
     var id: ProviderID { .grokBuild }
     var authURL: URL
+    var renewal: GrokCLIRenewal
 
     static let billingURL = URL(string: ProviderHTTP.grokBuildBillingURL)!
 
-    init(authURL: URL = GrokBuildAuth.defaultAuthURL) {
+    init(authURL: URL = GrokBuildAuth.defaultAuthURL, renewal: GrokCLIRenewal = .shared) {
         self.authURL = authURL
+        self.renewal = renewal
     }
 
     func currentAccountBinding() -> AccountBindingCheck {
         .key((try? GrokBuildAuth.load(from: authURL))?.accountKey)
     }
 
+    /// The saved session, or the one the CLI writes after renewing an expired token.
+    func session() async throws -> GrokBuildAuth.Session {
+        if let session = try? GrokBuildAuth.load(from: authURL) { return session }
+        _ = await renewal.renew()
+        return try GrokBuildAuth.load(from: authURL)
+    }
+
     func fetch() async throws -> ProviderSnapshot {
-        let session = try GrokBuildAuth.load(from: authURL)
+        let session = try await session()
         let data = try await ProviderHTTP.get(
             url: Self.billingURL,
             headers: [
