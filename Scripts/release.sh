@@ -53,11 +53,12 @@ if [[ "$(git rev-parse HEAD)" != "$published" ]]; then
   echo "HEAD is not what ${REPO} main has. Push first, then release." >&2
   exit 1
 fi
-if git ls-remote --tags "$REMOTE_URL" "refs/tags/${TAG}" | grep -q .; then
+if [[ -n "$(git ls-remote --tags "$REMOTE_URL" "refs/tags/${TAG}")" ]]; then
   echo "Tag ${TAG} already exists on ${REPO}." >&2
   exit 1
 fi
-if ! security find-identity -v -p codesigning | grep -q "Developer ID Application: .*(${TEAM_ID})"; then
+identities="$(security find-identity -v -p codesigning)"
+if ! grep -q "Developer ID Application: .*(${TEAM_ID})" <<<"$identities"; then
   echo "No Developer ID Application certificate for team ${TEAM_ID} in the keychain." >&2
   exit 1
 fi
@@ -123,7 +124,9 @@ check CFBundleVersion "$BUILD"
 check CFBundleIdentifier "io.github.neeeeeeessa.AgentNotchPlus"
 check SUFeedURL "$FEED_URL"
 check SUPublicEDKey "$PUBLIC_ED_KEY"
-codesign -dvv "$APP" 2>&1 | grep -q "Developer ID Application: .*(${TEAM_ID})" \
+# Captured first: with pipefail, grep -q closing the pipe early would fail the check.
+authority="$(codesign -dvv "$APP" 2>&1 || true)"
+grep -q "Developer ID Application: .*(${TEAM_ID})" <<<"$authority" \
   || { echo "Exported app is not signed with Developer ID for team ${TEAM_ID}" >&2; exit 1; }
 
 echo "Notarizing…"
@@ -164,7 +167,8 @@ git -C "$WT" push -q "$REMOTE_URL" HEAD:gh-pages
 
 echo "Waiting for the live feed…"
 for _ in $(seq 1 36); do
-  if curl -fsSL "$FEED_URL" 2>/dev/null | grep -q "<sparkle:version>${BUILD}</sparkle:version>"; then
+  live="$(curl -fsSL "$FEED_URL" 2>/dev/null || true)"
+  if grep -q "<sparkle:version>${BUILD}</sparkle:version>" <<<"$live"; then
     echo "Released ${TAG}."
     echo "Download: ${PREFIX}AgentNotchPlus.zip"
     echo "Feed:     ${FEED_URL}"
