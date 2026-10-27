@@ -51,11 +51,13 @@ A local build that skips team signing:
 xcodebuild -project AgentNotch.xcodeproj -scheme AgentNotch -configuration Debug -destination 'platform=macOS' CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= build
 ```
 
-Xcode prints the path of `AgentNotch.app` near the end of that log.
+Xcode prints the path of `Agent Notch Plus.app` near the end of that log.
 
 ## First launch
 
 A new install starts with usage access off. Nothing is read until you turn a switch on.
+
+Hover a circle to see how to turn it on. Clicking a circle that is off opens Settings.
 
 Open Settings from the menu bar icon, or from the Dock icon if you left the app there.
 

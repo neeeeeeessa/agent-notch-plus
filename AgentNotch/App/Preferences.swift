@@ -49,7 +49,7 @@ nonisolated enum NotchVisibility: String, CaseIterable, Identifiable {
         case .alwaysShow: "The notch stays open with every reading visible."
         case .onHover: "A small pill at the screen edge that opens when you reach it."
         case .hidden:
-            "Nothing on screen. Open Agent Notch again from Applications to bring these settings back."
+            "Nothing on screen. Open Agent Notch Plus again from Applications to bring these settings back."
         }
     }
 }
@@ -71,10 +71,10 @@ nonisolated enum AppPresence: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .dock: "A normal app icon in the Dock while Agent Notch is running."
+        case .dock: "A normal app icon in the Dock while Agent Notch Plus is running."
         case .menuBar: "A small icon in the menu bar instead, and nothing in the Dock."
         case .hidden:
-            "No icon anywhere. Open Agent Notch again from Applications to bring these settings back."
+            "No icon anywhere. Open Agent Notch Plus again from Applications to bring these settings back."
         }
     }
 }
@@ -145,7 +145,7 @@ final class Preferences {
         notchEdge = defaults.string(forKey: Key.notchEdge).flatMap(NotchEdge.init) ?? .right
         notchVisibility =
             defaults.string(forKey: Key.notchVisibility).flatMap(NotchVisibility.init)
-            ?? .alwaysShow
+            ?? .onHover
         appPresence = defaults.string(forKey: Key.appPresence).flatMap(AppPresence.init) ?? .menuBar
         let hidden = defaults.stringArray(forKey: Key.hiddenProviders) ?? []
         hiddenProviders = Set(hidden.compactMap(ProviderID.init))

@@ -71,7 +71,7 @@ fi
 DIST="$ROOT/dist"
 ARCHIVE="$DIST/AgentNotch.xcarchive"
 EXPORT="$DIST/export"
-APP="$EXPORT/AgentNotch.app"
+APP="$EXPORT/Agent Notch Plus.app"
 UPDATES="$DIST/updates"
 ZIP="$UPDATES/AgentNotchPlus.zip"
 WT="$DIST/gh-pages"

@@ -267,6 +267,11 @@ final class NotchViewModel {
     }
 
     func cellClicked(_ id: ProviderID) {
+        // An off provider has nothing to refresh; its card points here to turn it on.
+        if store.status(for: id) == .failed(UsageStore.disconnectedStatus) {
+            openSettings()
+            return
+        }
         spinTurns[id, default: 0] += 1
         refreshRollStart = Date().timeIntervalSinceReferenceDate
         store.refresh(id)

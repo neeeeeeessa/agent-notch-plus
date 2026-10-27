@@ -66,7 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         settings = SettingsWindowController(
             preferences: preferences,
-            store: store
+            store: store,
+            checkForUpdates: { [weak self] in self?.updater.checkForUpdates() }
         )
         let model = NotchViewModel(preferences: preferences, store: store)
         notch = NotchWindowController(model: model)

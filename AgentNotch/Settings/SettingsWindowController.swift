@@ -5,14 +5,17 @@ import SwiftUI
 final class SettingsWindowController {
     private let preferences: Preferences
     private let store: UsageStore
+    private let checkForUpdates: () -> Void
     private var window: NSWindow?
 
     init(
         preferences: Preferences,
-        store: UsageStore
+        store: UsageStore,
+        checkForUpdates: @escaping () -> Void
     ) {
         self.preferences = preferences
         self.store = store
+        self.checkForUpdates = checkForUpdates
     }
 
     func show() {
@@ -27,10 +30,11 @@ final class SettingsWindowController {
         let hosting = NSHostingController(
             rootView: SettingsView(
                 preferences: preferences,
-                store: store
+                store: store,
+                checkForUpdates: checkForUpdates
             ))
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Agent Notch Settings"
+        window.title = "Agent Notch Plus Settings"
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden

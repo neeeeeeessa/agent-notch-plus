@@ -19,7 +19,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard item == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Self.icon
-        item.button?.toolTip = "Agent Notch"
+        item.button?.toolTip = "Agent Notch Plus"
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
@@ -76,7 +76,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             ).target = self
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Agent Notch", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit Agent Notch Plus", action: #selector(quit), keyEquivalent: "q")
             .target = self
     }
 

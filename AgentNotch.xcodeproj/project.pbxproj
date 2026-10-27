@@ -28,7 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		6FACE41130482E2C00C404F0 /* AgentNotch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentNotch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6FACE41130482E2C00C404F0 /* Agent Notch Plus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Agent Notch Plus.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FACE42030482E2D00C404F0 /* AgentNotchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentNotchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FACE42A30482E2D00C404F0 /* AgentNotchUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentNotchUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -90,7 +90,7 @@
 		6FACE41230482E2C00C404F0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				6FACE41130482E2C00C404F0 /* AgentNotch.app */,
+				6FACE41130482E2C00C404F0 /* Agent Notch Plus.app */,
 				6FACE42030482E2D00C404F0 /* AgentNotchTests.xctest */,
 				6FACE42A30482E2D00C404F0 /* AgentNotchUITests.xctest */,
 			);
@@ -120,7 +120,7 @@
 				6FACE44130482E2D00C404F0 /* Sparkle */,
 			);
 			productName = AgentNotch;
-			productReference = 6FACE41130482E2C00C404F0 /* AgentNotch.app */;
+			productReference = 6FACE41130482E2C00C404F0 /* Agent Notch Plus.app */;
 			productType = "com.apple.product-type.application";
 		};
 		6FACE41F30482E2D00C404F0 /* AgentNotchTests */ = {
@@ -421,8 +421,11 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.0;
+				EXECUTABLE_NAME = AgentNotch;
+				INFOPLIST_KEY_CFBundleDisplayName = "Agent Notch Plus";
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.neeeeeeessa.AgentNotchPlus;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = AgentNotch;
+				PRODUCT_NAME = "Agent Notch Plus";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -456,8 +459,11 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.0;
+				EXECUTABLE_NAME = AgentNotch;
+				INFOPLIST_KEY_CFBundleDisplayName = "Agent Notch Plus";
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.neeeeeeessa.AgentNotchPlus;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = AgentNotch;
+				PRODUCT_NAME = "Agent Notch Plus";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -485,7 +491,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AgentNotch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AgentNotch";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Agent Notch Plus.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AgentNotch";
 			};
 			name = Debug;
 		};
@@ -506,7 +512,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AgentNotch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AgentNotch";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Agent Notch Plus.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AgentNotch";
 			};
 			name = Release;
 		};

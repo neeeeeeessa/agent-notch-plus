@@ -39,7 +39,7 @@ nonisolated struct ClaudeOAuthProvider: UsageProvider {
     }
 
     static let renewInClaudeCode =
-        "Refresh sign-in in Claude Code. Agent Notch does not sign in or refresh tokens."
+        "Refresh sign-in in Claude Code. Agent Notch Plus does not sign in or refresh tokens."
 
     func windows(from root: [String: Any]) -> [LimitWindow] {
         var windows: [LimitWindow] = []

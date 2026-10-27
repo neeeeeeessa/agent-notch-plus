@@ -87,6 +87,12 @@ struct GrokCardRenderTests {
             print("GROK CARD \(name) size=\(size)")
             #expect(size.height <= NotchMetrics.tooltipMaxHeight)
         }
+        for id in ProviderID.allCases {
+            let off = ProviderStatus.failed(UsageStore.disconnectedStatus)
+            let size = try render(
+                TooltipCard(id: id, status: off, direction: .pointsRight, tailCenter: 40), "card-off-\(id.rawValue)")
+            #expect(size.height <= NotchMetrics.tooltipMaxHeight)
+        }
         let stale = ProviderStatus.ready(grokSnapshot(extra: true), stale: true)
         let staleSize = try render(
             TooltipCard(id: .grokBuild, status: stale, direction: .pointsRight, tailCenter: 40), "card-grok-stale")

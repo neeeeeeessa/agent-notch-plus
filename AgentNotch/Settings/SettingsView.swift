@@ -45,6 +45,7 @@ final class UsageAccessGrantCoordinator {
 struct SettingsView: View {
     @Bindable var preferences: Preferences
     let store: UsageStore
+    var checkForUpdates: () -> Void = {}
     #if !AGENTNOTCH_DEMO
     @State private var usageAccessError: String?
     @State private var grantCoordinator = UsageAccessGrantCoordinator()
@@ -87,7 +88,7 @@ struct SettingsView: View {
             Text("No account credentials or provider connections are used.")
                 .settingsDetail()
             #else
-            Text("Agent Notch")
+            Text("Agent Notch Plus")
                 .font(.system(size: 22, weight: .bold))
             Text("Account access is off until you enable a provider. That permission is remembered until you turn it off.")
                 .settingsDetail()
@@ -186,8 +187,15 @@ struct SettingsView: View {
 
     private var updates: some View {
         Section("Updates") {
+            // Matches AppUpdater: only release builds start Sparkle.
+            #if DEBUG || AGENTNOTCH_DEMO
             Text("Updates disabled for this local build")
                 .settingsDetail()
+            #else
+            Text("New versions are checked automatically and offered here before they install.")
+                .settingsDetail()
+            Button("Check for Updates…", action: checkForUpdates)
+            #endif
         }
     }
 
