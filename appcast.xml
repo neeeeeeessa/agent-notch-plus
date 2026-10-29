@@ -3,6 +3,15 @@
     <channel>
         <title>AgentNotch</title>
         <item>
+            <title>1.2.2</title>
+            <pubDate>Thu, 29 Oct 2026 22:08:06 +0100</pubDate>
+            <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
+            <sparkle:version>202610292106</sparkle:version>
+            <sparkle:shortVersionString>1.2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/neeeeeeessa/agent-notch-plus/releases/download/v1.2.2/AgentNotchPlus.zip" length="4067789" type="application/octet-stream" sparkle:edSignature="pomVdPveG9tRuEscW99LsmyoF7mID/gqTDY2RU2XYnd35u+iTuqq4tCTokvuYRucF/1s5MsukoYcMUl5t0r+Ag=="/>
+        </item>
+        <item>
             <title>1.2.1</title>
             <pubDate>Tue, 27 Oct 2026 23:02:35 +0100</pubDate>
             <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
