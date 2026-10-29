@@ -90,6 +90,8 @@ final class Preferences {
         /// Providers the user explicitly allowed to read an existing sign-in. Never derived from visibility.
         static let usageAccessProviders = "usageAccessProviders"
         static let hasLaunchedBefore = "hasLaunchedBefore"
+        /// Set once the open-at-login question has been shown, whatever the answer.
+        static let askedOpenAtLogin = "askedOpenAtLogin"
     }
 
     private let defaults: UserDefaults
@@ -137,6 +139,15 @@ final class Preferences {
     }
 
     private(set) var loginItemError: String?
+
+    /// True until the open-at-login question has been shown. Never true when the login item is already on.
+    var needsOpenAtLoginQuestion: Bool {
+        !opensAtLogin && !defaults.bool(forKey: Key.askedOpenAtLogin)
+    }
+
+    func markOpenAtLoginAsked() {
+        defaults.set(true, forKey: Key.askedOpenAtLogin)
+    }
 
     let isFirstLaunch: Bool
 

@@ -92,6 +92,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if preferences.isFirstLaunch {
             settings.show()
         }
+        DispatchQueue.main.async { [weak self] in self?.askOpenAtLoginOnce() }
+    }
+
+    /// Asks once, new and existing installs alike. Opening at login is never switched on without a yes;
+    /// the switch in Settings stays for later changes.
+    private func askOpenAtLoginOnce() {
+        #if !AGENTNOTCH_DEMO
+        // A modal here would block the unit-test host before tests start.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        guard preferences.needsOpenAtLoginQuestion else { return }
+        preferences.markOpenAtLoginAsked()
+        let alert = NSAlert()
+        alert.messageText = "Open Agent Notch Plus when you log in?"
+        alert.informativeText =
+            "Your usage circles are ready as soon as you start your Mac. You can change this anytime in Settings."
+        alert.addButton(withTitle: "Open at Login")
+        alert.addButton(withTitle: "Not Now")
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn {
+            preferences.opensAtLogin = true
+        }
+        #endif
     }
 
     /// Reopening from Finder or the Dock brings settings back, which matters when nothing else is on screen.

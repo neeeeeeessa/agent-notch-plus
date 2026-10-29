@@ -182,6 +182,22 @@ struct SettingsView: View {
     private var presence: some View {
         Section("App icon") {
             SettingsPicker(selection: $preferences.appPresence)
+            SettingsCard {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Open at login")
+                            .font(.system(size: 13, weight: .medium))
+                        if let error = preferences.loginItemError {
+                            Text(error).settingsDetail()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Toggle("", isOn: $preferences.opensAtLogin)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                }
+            }
         }
     }
 
