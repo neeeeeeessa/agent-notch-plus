@@ -116,7 +116,7 @@ final class UsageStore {
             revoke(id)
         }
         for id in providers.keys where current.contains(id) && !previous.contains(id) {
-            refresh(id)
+            refresh(id, manual: id == .antigravity)
         }
     }
 
@@ -229,8 +229,9 @@ final class UsageStore {
             // A successful read carries its own binding, so no second local auth read is needed.
             // Readings from different accounts must not produce exhausted or reset transitions.
             // A reading restored after a restart is not a baseline, so overnight resets do not announce on launch.
-            let sameAccount =
-                !restored.contains(id) && previous?.accountBinding == snapshot.accountBinding ? previous : nil
+            let bindingMatches = previous?.accountBinding == snapshot.accountBinding
+                && (id != .antigravity || snapshot.accountBinding != nil)
+            let sameAccount = !restored.contains(id) && bindingMatches ? previous : nil
             let events = LimitEvent.detect(previous: sameAccount, current: snapshot, now: Date())
             statuses[id] = .ready(snapshot, stale: snapshot.sourceIsStale)
             awaitingOwnerTool.remove(id)
@@ -247,14 +248,15 @@ final class UsageStore {
             let previousForAccount = previousReading(previous, for: id, binding: binding)
             awaitingOwnerTool.remove(id)
             switch error {
+            case UsageProviderError.authenticationRejected(let message):
+                revokeCredential(id)
+                statuses[id] = .needsAuth(message)
+                restored.remove(id)
+                Self.log.notice("\(id.rawValue, privacy: .public) usage needs authentication")
             case UsageProviderError.needsAuth(let message):
                 revokeCredential(id)
                 // The last reading stays up, dated, until the owning tool renews its sign-in.
-                if id == .antigravity, message == id.signInHint {
-                    statuses[id] = .needsAuth(message)
-                    restored.remove(id)
-                    saveReading(nil, for: id)
-                } else if let previous {
+                if let previous {
                     statuses[id] = .ready(previous, stale: true)
                     awaitingOwnerTool.insert(id)
                 } else {
