@@ -335,14 +335,15 @@ struct SecurityHardeningTests {
     @Test @MainActor func repeatedGrantDoesNotOverlapAndCancelBlocksCompletion() {
         let coordinator = UsageAccessGrantCoordinator()
         let generation = coordinator.begin(.claude)
-        #expect(generation == 0)
+        #expect(generation != nil)
         #expect(coordinator.begin(.claude) == nil)
         #expect(coordinator.approving == [.claude])
-        #expect(coordinator.begin(.codex) == 0)
+        let codex = coordinator.begin(.codex)
+        #expect(codex != nil)
         coordinator.cancel(.claude)
         #expect(coordinator.complete(.claude, generation: generation ?? 0) == false)
         #expect(coordinator.approving.contains(.claude) == false)
-        #expect(coordinator.complete(.codex, generation: 0))
+        #expect(coordinator.complete(.codex, generation: codex ?? 0))
     }
 
     @Test func grantDiscardThenCompleteCannotPublish() throws {
