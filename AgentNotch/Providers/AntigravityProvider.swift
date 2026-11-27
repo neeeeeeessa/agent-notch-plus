@@ -16,9 +16,12 @@ nonisolated struct AntigravityProvider: UsageProvider {
         let lastMiss = Mutex<ContinuousClock.Instant?>(nil)
     }
     private let discoveryCache = DiscoveryCache()
+    private static let appBundleIdentifiers = ["com.google.antigravity", "com.google.antigravity-ide"]
     var now: @Sendable () -> ContinuousClock.Instant = { .now }
     var appIsRunning: @Sendable () -> Bool = {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.antigravity").isEmpty
+        Self.appBundleIdentifiers.contains {
+            !NSRunningApplication.runningApplications(withBundleIdentifier: $0).isEmpty
+        }
     }
 
     func resetDiscoveryBackoff() {
@@ -299,10 +302,24 @@ nonisolated struct AntigravityDiscovery {
     }
 
     private static let appRoot = URL(fileURLWithPath: "/Applications/Antigravity.app/Contents", isDirectory: true)
+    private static let googleCLIRequirement =
+        #"identifier "cli" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "EQHXZ8M8AV""#
+    static let defaultSignedExecutables: [URL] = {
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        return [
+            home.appendingPathComponent(".gemini/bin/agy"),
+            home.appendingPathComponent(".local/bin/agy"),
+        ]
+    }()
+
     var executableRoot = Self.appRoot
+    var signedExecutables = Self.defaultSignedExecutables
     var isExecutable: @Sendable (URL) -> Bool = { url in
         (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
             && FileManager.default.isExecutableFile(atPath: url.path)
+    }
+    var verifySignedProcess: @Sendable (Int32, URL) -> Bool = {
+        Self.verifyGoogleSignedCLI(pid: $0, expectedExecutable: $1)
     }
     var clock: @Sendable () -> ContinuousClock.Instant = { .now }
 
@@ -366,14 +383,23 @@ nonisolated struct AntigravityDiscovery {
         output.split(whereSeparator: \.isNewline).compactMap { line in
             let fields = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
             guard fields.count == 2, let pid = Int32(fields[0]), pid > 0,
-                  fields[1].hasPrefix(executableRoot.path + "/"),
-                  fields[1].split(separator: "/").last?.hasPrefix("language_server") == true else { return nil }
+                  matchesCandidatePath(fields[1]) else { return nil }
             return (pid, String(fields[1]))
         }
     }
 
+    private func matchesCandidatePath(_ path: Substring) -> Bool {
+        if path.hasPrefix(executableRoot.path + "/"),
+           path.split(separator: "/").last?.hasPrefix("language_server") == true {
+            return true
+        }
+        return signedExecutables.contains {
+            path == $0.path || path == $0.resolvingSymlinksInPath().path
+        }
+    }
+
     private func languageServerArguments(_ pid: Int32, executable: String) -> Substring? {
-        guard validExecutable(executable) else { return nil }
+        guard validProcessExecutable(executable, pid: pid) else { return nil }
         guard let output = run("/bin/ps", ["-ww", "-p", String(pid), "-o", "pid=,uid=,command="]) else { return nil }
         for line in output.split(whereSeparator: \.isNewline) {
             let fields = line.split(maxSplits: 2, whereSeparator: \.isWhitespace)
@@ -389,6 +415,54 @@ nonisolated struct AntigravityDiscovery {
         let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath()
         return resolved.path.hasPrefix(root + "/") && resolved.lastPathComponent.hasPrefix("language_server")
             && isExecutable(resolved)
+    }
+
+    func validProcessExecutable(_ path: String, pid: Int32) -> Bool {
+        if validExecutable(path) { return true }
+        guard pid > 0, !path.split(separator: "/").contains("..") else { return false }
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+        let allowed = signedExecutables.contains {
+            $0.resolvingSymlinksInPath().standardizedFileURL.path == resolved.path
+        }
+        return allowed && isExecutable(resolved) && verifySignedProcess(pid, resolved)
+    }
+
+    /// Cryptographically verifies a live `agy` process against Google LLC's Developer ID and hardened runtime.
+    static func verifyGoogleSignedCLI(pid: Int32, expectedExecutable: URL) -> Bool {
+        var dynamicCode: SecCode?
+        guard SecCodeCopyGuestWithAttributes(
+            nil, [kSecGuestAttributePid: pid] as CFDictionary, [], &dynamicCode
+        ) == errSecSuccess, let dynamicCode else { return false }
+
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            googleCLIRequirement as CFString, [], &requirement
+        ) == errSecSuccess, let requirement else { return false }
+
+        guard SecCodeCheckValidity(
+            dynamicCode, SecCSFlags(rawValue: kSecCSStrictValidate), requirement
+        ) == errSecSuccess else { return false }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(dynamicCode, [], &staticCode) == errSecSuccess,
+              let staticCode else { return false }
+
+        var codePath: CFURL?
+        guard SecCodeCopyPath(staticCode, [], &codePath) == errSecSuccess,
+              let codeURL = codePath as URL?,
+              codeURL.resolvingSymlinksInPath().standardizedFileURL.path
+                  == expectedExecutable.resolvingSymlinksInPath().standardizedFileURL.path
+        else { return false }
+
+        var infoCF: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &infoCF
+        ) == errSecSuccess, let info = infoCF as? [String: Any],
+              let flags = info[kSecCodeInfoFlags as String] as? UInt32 else { return false }
+
+        let hardenedRuntime: UInt32 = 0x0001_0000
+        let adHoc: UInt32 = 0x0000_0002
+        return (flags & hardenedRuntime) != 0 && (flags & adHoc) == 0
     }
 
     static func commandArguments(_ command: Substring, executable: String) -> Substring? {

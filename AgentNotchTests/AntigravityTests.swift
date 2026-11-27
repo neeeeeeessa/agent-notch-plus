@@ -335,4 +335,45 @@ struct AntigravityTests {
             #expect(request == nil)
         }
     }
+
+    @Test func signedAgyHubRequiresSignatureVerificationAndAllowedPath() {
+        let agy = URL(fileURLWithPath: "/synthetic/.gemini/bin/agy")
+        var discovery = AntigravityDiscovery()
+        discovery.signedExecutables = [agy]
+        discovery.isExecutable = { _ in true }
+        discovery.files = { _ in [URL(fileURLWithPath: "/fake/hub_58120.json")] }
+        discovery.read = { _ in
+            Data(#"{"pid":56700,"httpsPort":58123,"httpPort":58120,"csrfToken":"ide-hub"}"#.utf8)
+        }
+        discovery.alive = { $0 == 56700 }
+        discovery.run = { command, args in
+            if command == "/bin/ps" {
+                if args.contains("pid=,comm=") { return "56700 \(agy.path)" }
+                return "56700 \(getuid()) \(agy.path) --app-data-dir antigravity"
+            }
+            return "n127.0.0.1:58123\nn127.0.0.1:58120"
+        }
+
+        // Rejected when cryptographic code-signature check fails.
+        discovery.verifySignedProcess = { _, _ in false }
+        #expect(discovery.hubs().isEmpty)
+
+        // Accepted only when live PID signature verification succeeds.
+        discovery.verifySignedProcess = { pid, url in pid == 56700 && url.path == agy.path }
+        let hubs = discovery.hubs()
+        #expect(hubs.count == 1)
+        #expect(hubs.first?.https == AntigravityEndpoint(port: 58123, token: "ide-hub"))
+        #expect(hubs.first?.http == AntigravityEndpoint(port: 58120, token: "ide-hub", plainHTTP: true))
+
+        // Path traversal and untrusted directories are rejected even if signature mock returns true.
+        discovery.verifySignedProcess = { _, _ in true }
+        #expect(!discovery.validProcessExecutable("/synthetic/.gemini/bin/../bin/agy", pid: 56700))
+        #expect(!discovery.validProcessExecutable("/tmp/agy", pid: 56700))
+        #expect(!discovery.validProcessExecutable(agy.path, pid: 0))
+    }
+
+    @Test func liveGoogleCLISignatureRejectsCurrentTestProcess() {
+        let current = URL(fileURLWithPath: CommandLine.arguments[0])
+        #expect(!AntigravityDiscovery.verifyGoogleSignedCLI(pid: getpid(), expectedExecutable: current))
+    }
 }
