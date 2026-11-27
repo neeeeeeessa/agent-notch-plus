@@ -21,8 +21,13 @@ struct AntigravityTests {
         discovery.alive = { $0 == 42 || $0 == 43 }
         discovery.run = { command, args in
             if command == "/bin/ps" {
-                if args.contains("-p") { return "42 \(getuid()) \(Self.server)" }
-                return "43 \(Self.server) --csrf_token ide --extension_server_port 9999 --extension_server_csrf_token ext"
+                if args.contains("42") { return "42 \(getuid()) \(Self.server)" }
+                if args.contains("43") {
+                    return "43 \(getuid()) \(Self.server) --csrf_token ide --extension_server_port 9999 --extension_server_csrf_token ext"
+                }
+                // The listing step must ask for short executable paths only.
+                guard args.contains("pid=,comm=") else { return "" }
+                return "7 /Applications/Other.app/Contents/MacOS/Other\n43 \(Self.server)"
             }
             return args.contains("42") ? "n127.0.0.1:1234" : "n127.0.0.1:4321"
         }
@@ -95,6 +100,7 @@ struct AntigravityTests {
         #expect(AntigravityQuota.date(1795780800250) == Date(timeIntervalSince1970: 1795780800.25))
         #expect(AntigravityQuota.date(["seconds": "1795780800", "nanos": 250000000]) == Date(timeIntervalSince1970: 1795780800.25))
         #expect(AntigravityQuota.date(["seconds": 1795780800, "nanos": true]) == nil)
+        #expect(AntigravityQuota.date(["seconds": 1795780800, "nanos": NSNull()]) == Date(timeIntervalSince1970: 1795780800))
         func quota(_ fields: String) throws -> ProviderSnapshot {
             try AntigravityQuota.parse(Data("""
             {"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"weekly",\(fields)}]}]}
@@ -115,6 +121,28 @@ struct AntigravityTests {
         """.utf8), grouped: true)
         #expect(snapshot.windows.map(\.label) == ["Gemini session"])
         #expect(snapshot.headline?.resetsAt == Date(timeIntervalSince1970: 1795780800))
+
+        let opaque = try AntigravityQuota.parse(Data("""
+        {"groups":[{"displayName":"Gemini","buckets":[
+          {"bucketId":"b5h9f2","cadence":"WEEKLY","remainingFraction":0.4},
+          {"bucketId":"q-5h","remainingFraction":0.7}
+        ]}]}
+        """.utf8), grouped: true)
+        #expect(opaque.windows.map(\.label) == ["Gemini session", "Gemini weekly"])
+        #expect(opaque.windows.map(\.usedFraction) == [1 - 0.7, 1 - 0.4])
+    }
+
+    @Test func processFallbackReadsFullArgvOnlyForOwnedLanguageServers() {
+        var discovery = discoveryFixture()
+        let base = discovery.run
+        discovery.run = { command, args in
+            // Same language server, but owned by another user.
+            if command == "/bin/ps", args.contains("43") {
+                return "43 \(getuid() + 1) \(Self.server) --csrf_token ide"
+            }
+            return base(command, args)
+        }
+        #expect(discovery.processEndpoints().isEmpty)
     }
 
     private final class TestTrustSpace: URLProtectionSpace, @unchecked Sendable {

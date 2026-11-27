@@ -13,10 +13,12 @@ nonisolated struct AntigravityProvider: UsageProvider {
     @concurrent
     func fetch() async throws -> ProviderSnapshot {
         let hub = discovery.hub()
+        try Task.checkCancellation()
         var server: AntigravityEndpoint?
         if let hub { server = try await probe(hub) }
         if server == nil {
             for candidate in discovery.processEndpoints() {
+                try Task.checkCancellation()
                 if let reachable = try await probe(candidate) {
                     server = reachable
                     break
@@ -212,11 +214,15 @@ nonisolated struct AntigravityDiscovery {
         return nil
     }
 
+    /// Lists short executable paths first, then reads full argv only for Antigravity's own language servers,
+    /// so a Mac full of long command lines cannot push the listing past the output cap.
     func processEndpoints() -> [AntigravityEndpoint] {
-        run("/bin/ps", ["-xww", "-o", "pid=,command="]).split(separator: "\n").flatMap { line -> [AntigravityEndpoint] in
+        run("/bin/ps", ["-x", "-o", "pid=,comm="]).split(separator: "\n").flatMap { line -> [AntigravityEndpoint] in
             let fields = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-            guard fields.count == 2, let pid = Int32(fields[0]), pid > 0, alive(pid),
-                  let process = Self.parseCommand(String(fields[1])) else { return [] }
+            guard fields.count == 2, let pid = Int32(fields[0]), pid > 0,
+                  fields[1].hasPrefix(Self.appContents), alive(pid),
+                  let command = languageServerCommand(pid),
+                  let process = Self.parseCommand(command) else { return [] }
             return listeningPorts(pid).sorted().map { port in
                 let token = port == process.extensionPort ? process.extensionToken ?? process.token : process.token
                 return AntigravityEndpoint(port: port, token: token)
@@ -224,13 +230,20 @@ nonisolated struct AntigravityDiscovery {
         }
     }
 
-    private func ownsLanguageServer(_ pid: Int32) -> Bool {
-        let output = run("/bin/ps", ["-xww", "-p", String(pid), "-o", "pid=,uid=,command="])
-        return output.split(whereSeparator: \.isNewline).contains { line in
+    private static let appContents = "/Applications/Antigravity.app/Contents/"
+
+    private func ownsLanguageServer(_ pid: Int32) -> Bool { languageServerCommand(pid) != nil }
+
+    /// Full argv of `pid`, only when this user owns it and it is Antigravity's language server.
+    private func languageServerCommand(_ pid: Int32) -> String? {
+        let output = run("/bin/ps", ["-ww", "-p", String(pid), "-o", "pid=,uid=,command="])
+        for line in output.split(whereSeparator: \.isNewline) {
             let fields = line.split(maxSplits: 2, whereSeparator: \.isWhitespace)
-            return fields.count == 3 && Int32(fields[0]) == pid && UInt32(fields[1]) == getuid()
-                && Self.isLanguageServer(String(fields[2]))
+            guard fields.count == 3, Int32(fields[0]) == pid, UInt32(fields[1]) == getuid() else { continue }
+            let command = String(fields[2])
+            if Self.isLanguageServer(command) { return command }
         }
+        return nil
     }
 
     private func listeningPorts(_ pid: Int32) -> Set<Int> {
@@ -249,7 +262,7 @@ nonisolated struct AntigravityDiscovery {
 
     private static func isLanguageServer(_ command: String) -> Bool {
         guard let executable = command.split(whereSeparator: \.isWhitespace).first,
-              executable.hasPrefix("/Applications/Antigravity.app/Contents/"),
+              executable.hasPrefix(appContents),
               !executable.split(separator: "/").contains("..") else { return false }
         let root = URL(fileURLWithPath: "/Applications/Antigravity.app/Contents", isDirectory: true)
             .resolvingSymlinksInPath().path
@@ -317,7 +330,7 @@ nonisolated enum AntigravityQuota {
             guard let gemini = isGemini(group["displayName"] as? String ?? "") else { return [] }
             let buckets = group["buckets"] as? [[String: Any]] ?? []
             return buckets.compactMap { bucket -> Reading? in
-                let weekly = ["bucketId", "cadence", "windowCadence", "window", "displayName", "description"]
+                let weekly = ["cadence", "windowCadence", "window", "displayName", "bucketId", "description"]
                     .compactMap { cadence(bucket[$0] as? String ?? "") }.first
                 let info = bucket["remaining"] as? [String: Any]
                 guard let weekly,
@@ -357,7 +370,10 @@ nonisolated enum AntigravityQuota {
     private static func cadence(_ value: String) -> Bool? {
         let normalized = value.lowercased().replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
         if normalized.contains("week") || normalized.contains("7 day") { return true }
-        if ["five hour", "5 hour", "5h", "session", "18000"].contains(where: normalized.contains) { return false }
+        if ["five hour", "5 hour", "session"].contains(where: normalized.contains) { return false }
+        // Short codes only count as whole words, so an opaque id like "b5h9f2" is not read as a cadence.
+        let words = normalized.split { !$0.isLetter && !$0.isNumber }
+        if words.contains("5h") || words.contains("18000s") || words.contains("18000") { return false }
         return nil
     }
 
@@ -381,7 +397,8 @@ nonisolated enum AntigravityQuota {
     static func date(_ value: Any?) -> Date? {
         if let timestamp = value as? [String: Any], let seconds = number(timestamp["seconds"]),
            seconds.isFinite, seconds > 0 {
-            let nanos = timestamp["nanos"] == nil ? 0 : number(timestamp["nanos"])
+            let rawNanos = timestamp["nanos"]
+            let nanos = rawNanos == nil || rawNanos is NSNull ? 0 : number(rawNanos)
             guard let nanos, (0..<1_000_000_000).contains(nanos) else { return nil }
             return Date(timeIntervalSince1970: seconds + nanos / 1_000_000_000)
         }
