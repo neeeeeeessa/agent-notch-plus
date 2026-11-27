@@ -372,8 +372,57 @@ struct AntigravityTests {
         #expect(!discovery.validProcessExecutable(agy.path, pid: 0))
     }
 
+    /// T3 Code's `agy acp` keeps its token in memory and writes no hub file: only a verified agy
+    /// yields token-less plain-HTTP endpoints, and the desktop language server path is unchanged.
+    @Test func tokenlessSignedAgyYieldsPlainHTTPEndpointsOnlyWhenVerified() {
+        let agy = URL(fileURLWithPath: "/synthetic/.local/bin/agy")
+        var discovery = AntigravityDiscovery()
+        discovery.signedExecutables = [agy]
+        discovery.isExecutable = { _ in true }
+        discovery.files = { _ in [] }
+        discovery.alive = { $0 == 81588 }
+        discovery.run = { command, args in
+            if command == "/bin/ps" {
+                if args.contains("pid=,comm=") { return "81588 \(agy.path)\n90000 /tmp/agy" }
+                return "81588 \(getuid()) \(agy.path) acp --gemini-dir /synthetic/t3 --app-data-dir antigravity-acp"
+            }
+            return "n127.0.0.1:62820\nn127.0.0.1:62819"
+        }
+
+        discovery.verifySignedProcess = { _, _ in false }
+        #expect(discovery.processEndpoints()?.isEmpty == true)
+
+        discovery.verifySignedProcess = { pid, url in pid == 81588 && url.path == agy.path }
+        #expect(discovery.processEndpoints() == [
+            AntigravityEndpoint(port: 62819, token: "", plainHTTP: true),
+            AntigravityEndpoint(port: 62820, token: "", plainHTTP: true),
+        ])
+    }
+
     @Test func liveGoogleCLISignatureRejectsCurrentTestProcess() {
         let current = URL(fileURLWithPath: CommandLine.arguments[0])
         #expect(!AntigravityDiscovery.verifyGoogleSignedCLI(pid: getpid(), expectedExecutable: current))
+    }
+
+    @Test func antigravitySummaryParsesBankedResetsAndFiltersExpired() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-27T16:00:00Z"))
+        let payload = Data("""
+        {"response":{"groups":[
+          {"displayName":"Gemini Models","buckets":[
+            {"bucketId":"gemini-5h","window":"5h","remainingFraction":0.5,"resetTime":"2026-11-27T18:00:00Z"}]}],
+        "bankedResets":[
+          {"resetId":"ag-later","displayLabel":"Full reset","expireTime":"2026-12-20T12:00:00Z","remainingCount":2},
+          {"resetId":"ag-expired","displayLabel":"Full reset","expireTime":"2026-11-25T12:00:00Z","remainingCount":1},
+          {"resetId":"ag-zero","displayLabel":"Full reset","expireTime":"2026-12-01T12:00:00Z","remainingCount":0},
+          {"resetId":"ag-soon","displayLabel":"Weekly reset","expireTime":{"seconds":"1796065200","nanos":0},"remainingCount":1}
+        ]}}
+        """.utf8)
+        let snapshot = try AntigravityQuota.parse(payload, grouped: true, now: now)
+        let credits = try #require(snapshot.resetCredits)
+        #expect(credits.activeCount(now: now) == 3)
+        #expect(credits.items.map(\.id) == ["ag-soon", "ag-later"])
+        #expect(credits.items.map(\.label) == ["Weekly reset", "Full reset"])
+        #expect(credits.items.map(\.count) == [1, 2])
+        #expect(credits.hasExpiringSoon(now: now))
     }
 }

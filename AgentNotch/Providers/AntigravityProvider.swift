@@ -1,6 +1,7 @@
 import AppKit
 import CoreFoundation
 import Foundation
+import OSLog
 import Security
 import Synchronization
 
@@ -181,7 +182,7 @@ nonisolated struct AntigravityEndpoint: Hashable {
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue(token, forHTTPHeaderField: "X-Codeium-Csrf-Token")
+        if !token.isEmpty { request.setValue(token, forHTTPHeaderField: "X-Codeium-Csrf-Token") }
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
@@ -367,12 +368,18 @@ nonisolated struct AntigravityDiscovery {
         for (pid, executable) in processPaths(listing) {
             guard !Task.isCancelled, clock() < deadline else { return result.isEmpty ? nil : result }
             guard seen.insert(pid).inserted, alive(pid),
-                  let arguments = languageServerArguments(pid, executable: executable),
-                  let process = Self.parseArguments(arguments) else { continue }
+                  let arguments = languageServerArguments(pid, executable: executable) else { continue }
             guard !Task.isCancelled, clock() < deadline else { return result.isEmpty ? nil : result }
-            result += listeningPorts(pid).sorted().map { port in
-                let token = port == process.extensionPort ? process.extensionToken ?? process.token : process.token
-                return AntigravityEndpoint(port: port, token: token)
+            if let process = Self.parseArguments(arguments) {
+                result += listeningPorts(pid).sorted().map { port in
+                    let token = port == process.extensionPort ? process.extensionToken ?? process.token : process.token
+                    return AntigravityEndpoint(port: port, token: token)
+                }
+            } else if isSignedCLI(executable) {
+                // `agy` (e.g. T3 Code's `agy acp`) keeps its token in memory and writes no hub file.
+                // Its plain-HTTP loopback port answers the quota summary without one. Reached only after
+                // `languageServerArguments` verified the process's Google signature and owner.
+                result += listeningPorts(pid).sorted().map { AntigravityEndpoint(port: $0, token: "", plainHTTP: true) }
             }
         }
         if result.isEmpty, Task.isCancelled || clock() >= deadline { return nil }
@@ -386,6 +393,11 @@ nonisolated struct AntigravityDiscovery {
                   matchesCandidatePath(fields[1]) else { return nil }
             return (pid, String(fields[1]))
         }
+    }
+
+    /// A `agy` path from `signedExecutables`, as opposed to the desktop app's `language_server`.
+    private func isSignedCLI(_ path: String) -> Bool {
+        !path.hasPrefix(executableRoot.path + "/") && matchesCandidatePath(Substring(path))
     }
 
     private func matchesCandidatePath(_ path: Substring) -> Bool {
@@ -532,8 +544,40 @@ nonisolated enum AntigravityQuota {
             }
         }
         let identity = identity(in: status)
+        let banked = grouped ? bankedResets(in: response, now: now) : nil
         return ProviderSnapshot(id: .antigravity, account: identity.account, plan: identity.plan, windows: windows,
-                                fetchedAt: now, accountBinding: identity.binding)
+                                fetchedAt: now, resetCredits: banked, accountBinding: identity.binding)
+    }
+
+    private static let log = Logger(subsystem: "io.github.neeeeeeessa.AgentNotchPlus", category: "AntigravityQuota")
+
+    private static func bankedResets(in response: [String: Any], now: Date) -> ResetCredits {
+        let rawList = (response["bankedResets"] ?? response["banked_resets"]) as? [Any] ?? []
+        Self.log.notice("antigravity bankedResets count=\(rawList.count)")
+        var items: [ResetCredit] = []
+        for (index, raw) in rawList.enumerated() {
+            guard let entry = raw as? [String: Any] else { continue }
+            let expireTime = date(entry["expireTime"] ?? entry["expire_time"])
+            if let expireTime, expireTime <= now { continue }
+            let count: Int
+            if let rawCount = entry["remainingCount"] ?? entry["remaining_count"] {
+                guard let parsed = number(rawCount), parsed >= 1, let exact = Int(exactly: parsed.rounded(.towardZero)) else {
+                    continue
+                }
+                count = exact
+            } else {
+                count = 1
+            }
+            let rawLabel = (entry["displayLabel"] ?? entry["display_label"]) as? String
+            let trimmedLabel = rawLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = (trimmedLabel?.isEmpty == false ? trimmedLabel! : "Full reset")
+            let rawID = ((entry["resetId"] ?? entry["reset_id"]) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = (rawID?.isEmpty == false ? rawID! : "\(index)-\(label)-\(Int(expireTime?.timeIntervalSince1970 ?? 0))")
+            items.append(ResetCredit(id: id, label: label, expiresAt: expireTime, count: count))
+        }
+        items.sort { ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture) }
+        let total = items.reduce(0) { $0 + $1.count }
+        return ResetCredits(availableCount: total, items: items)
     }
 
     static func isAuthError(_ root: [String: Any]) -> Bool {

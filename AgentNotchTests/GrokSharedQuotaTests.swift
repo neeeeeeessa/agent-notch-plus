@@ -22,6 +22,8 @@ struct GrokSharedQuotaTests {
 
     @Test func fourCirclesInApprovedOrder() {
         #expect(ProviderID.allCases == [.claude, .codex, .grokBuild, .antigravity])
+        #expect(ProviderID.codex.rawValue == "codex")
+        #expect(ProviderID.codex.displayName == "ChatGPT")
         #expect(ProviderID.grokBuild.rawValue == "grokBuild")
         #expect(ProviderID.grokBuild.displayName == "Grok")
     }
@@ -42,9 +44,11 @@ struct GrokSharedQuotaTests {
     @Test func cursorEndpointIsNoLongerAllowlisted() {
         #expect(ProviderHTTP.allows(URL(string: "https://cursor.com/api/usage-summary")!) == false)
         #expect(ProviderHTTP.allows(URL(string: "https://api.anthropic.com/api/oauth/usage")!))
+        #expect(ProviderHTTP.allows(URL(string: ProviderHTTP.claudeUsageWithResetsURL)!))
         #expect(ProviderHTTP.allows(URL(string: "https://chatgpt.com/backend-api/wham/usage")!))
+        #expect(ProviderHTTP.allows(URL(string: ProviderHTTP.codexResetCreditsURL)!))
         #expect(ProviderHTTP.allows(URL(string: ProviderHTTP.grokBuildBillingURL)!))
-        #expect(ProviderHTTP.allowedUsageURLs.count == 3)
+        #expect(ProviderHTTP.allowedUsageURLs.count == 5)
     }
 
     // MARK: Parser

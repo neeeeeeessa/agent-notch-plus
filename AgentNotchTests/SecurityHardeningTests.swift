@@ -122,6 +122,7 @@ struct SecurityHardeningTests {
             "https://user:secret@api.anthropic.com/api/oauth/usage",
             "https://api.anthropic.com:8443/api/oauth/usage",
             "https://chatgpt.com/backend-api/wham/usage/other",
+            "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
             "https://cursor.com/api/usage-summary",
         ]
         for raw in rejected {

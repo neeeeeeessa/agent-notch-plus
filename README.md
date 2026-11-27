@@ -65,9 +65,10 @@ A new install starts with every assistant switch off. Click **Choose assistants*
 Open Settings from the menu bar icon, or from the Dock icon if you left the app there.
 
 - Claude asks macOS for permission to read the Claude Code keychain item.
+- Claude's limit resets are not in Anthropic's usage API for this app. They come from a copy of claude.ai's usage page that `Scripts/claude-resets-capture.py` saves; the card shows when that copy was checked.
 - Codex reads `~/.codex/auth.json` when that file is readable. Otherwise it asks for the Codex Auth keychain item.
 - Grok reads `~/.grok/auth.json`. Sign in with the Grok CLI before you turn that switch on.
-- Antigravity needs no permission prompt. It reads usage from the Antigravity app while it runs, so open Antigravity and sign in. When Antigravity is closed, its circle keeps the last reading, dimmed, and updates again once you reopen it.
+- Antigravity needs no permission prompt. It reads usage from the Antigravity app while it runs, so open Antigravity and sign in. When Antigravity is closed, its circle keeps the last reading, dimmed, and updates again once you reopen it. After 15 minutes without an update, or once that limit's reset time has passed, the circle shows the reading's age (for example `1h`) instead of an old percentage. This applies to every assistant.
 
 ## Releasing
 

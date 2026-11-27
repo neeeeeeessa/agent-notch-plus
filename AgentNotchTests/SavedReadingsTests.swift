@@ -125,4 +125,21 @@ struct SavedReadingsTests {
         await settle(live)
         #expect(defaults.data(forKey: UsageStore.savedReadingsKey) == nil)
     }
+
+    @Test func resetCreditsSurviveSavedReadingRoundTrip() async throws {
+        let saved = defaults()
+        let expiry = Date(timeIntervalSince1970: 1_800_000_000)
+        var reading = snapshot(fraction: 0.07)
+        reading.resetCredits = ResetCredits(
+            availableCount: 1,
+            items: [ResetCredit(id: "r1", label: "Full reset", expiresAt: expiry)]
+        )
+        let first = store(OutcomeBox(.success(reading)), saved: saved)
+        first.refresh(.claude)
+        await settle(first)
+
+        let restarted = store(OutcomeBox(.failure(.badResponse("offline"))), saved: saved)
+        let restored = try #require(restarted.status(for: .claude).snapshot)
+        #expect(restored.resetCredits == reading.resetCredits)
+    }
 }

@@ -52,9 +52,13 @@ nonisolated enum ProviderJSON: Sendable {
 
 nonisolated enum ProviderHTTP: Sendable {
     static let grokBuildBillingURL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+    static let claudeUsageWithResetsURL = "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1"
+    static let codexResetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
     static let allowedUsageURLs: Set<String> = [
         "https://api.anthropic.com/api/oauth/usage",
+        claudeUsageWithResetsURL,
         "https://chatgpt.com/backend-api/wham/usage",
+        codexResetCreditsURL,
         grokBuildBillingURL,
     ]
     static let blockedEndpoint = "Usage request blocked: endpoint is not allowlisted"
@@ -70,7 +74,7 @@ nonisolated enum ProviderHTTP: Sendable {
         let absolute = url.absoluteString
         guard allowedUsageURLs.contains(absolute) else { return false }
         if url.query != nil {
-            return absolute == grokBuildBillingURL
+            return absolute == grokBuildBillingURL || absolute == claudeUsageWithResetsURL
         }
         return true
     }

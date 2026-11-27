@@ -4,12 +4,13 @@ nonisolated struct CodexLocalProvider: UsageProvider {
     var id: ProviderID { .codex }
 
     private static let usageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
+    private static let resetCreditsURL = URL(string: ProviderHTTP.codexResetCreditsURL)!
 
     static let sessionLogScanningDisabled = "Session log scanning is disabled"
 
     func fetch() async throws -> ProviderSnapshot {
         guard let live = try await liveSnapshot() else {
-            throw UsageProviderError.needsAuth("Sign in to Codex to read your usage")
+            throw UsageProviderError.needsAuth("Sign in to ChatGPT to read your usage")
         }
         return live
     }
@@ -26,9 +27,30 @@ nonisolated struct CodexLocalProvider: UsageProvider {
         let data = try await ProviderHTTP.get(
             url: Self.usageURL,
             headers: headers,
-            authFailed: "Sign in to Codex to read your usage"
+            authFailed: "Sign in to ChatGPT to read your usage"
         )
-        return try snapshot(from: try ProviderJSON.object(data))
+        let usageObject = try ProviderJSON.object(data)
+        var result = try snapshot(from: usageObject)
+        if shouldFetchResetCreditDetails(in: usageObject) {
+            var creditHeaders = headers
+            creditHeaders["originator"] = "Codex Desktop"
+            creditHeaders["OAI-Product-Sku"] = "CODEX"
+            do {
+                let creditsData = try await ProviderHTTP.get(
+                    url: Self.resetCreditsURL,
+                    headers: creditHeaders,
+                    authFailed: "Sign in to ChatGPT to read your usage"
+                )
+                if let detailed = parseResetCredits(from: try ProviderJSON.object(creditsData)) {
+                    result.resetCredits = detailed
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Keep the primary usage snapshot and any summary available_count when detail fetch fails.
+            }
+        }
+        return result
     }
 
     /// Rollout and state-database scanning is retired. This returns before any file access.
@@ -123,17 +145,101 @@ nonisolated struct CodexLocalProvider: UsageProvider {
             windows.append(window)
         }
         guard !windows.isEmpty else {
-            throw UsageProviderError.unavailable("Codex reported no usage windows")
+            throw UsageProviderError.unavailable("ChatGPT reported no usage windows")
         }
         let plan = ((limits["plan_type"] as? String) ?? (nested["plan_type"] as? String))
             .flatMap { $0.isEmpty ? nil : $0 }
+        let resetCredits = resetCreditsSummary(from: limits, nested: nested)
         return ProviderSnapshot(
             id: .codex,
             account: nil,
             plan: plan.map(ProviderJSON.capitalised),
             windows: windows,
-            fetchedAt: Date()
+            fetchedAt: Date(),
+            resetCredits: resetCredits
         )
+    }
+
+    func shouldFetchResetCreditDetails(in usageObject: [String: Any]) -> Bool {
+        let nested = usageObject["rate_limit"] as? [String: Any]
+        if let summary = (usageObject["rate_limit_reset_credits"] as? [String: Any])
+            ?? (nested?["rate_limit_reset_credits"] as? [String: Any]),
+            let available = ProviderJSON.int(summary["available_count"])
+        {
+            return available > 0
+        }
+        return true
+    }
+
+    private func resetCreditsSummary(from limits: [String: Any], nested: [String: Any]) -> ResetCredits? {
+        guard let summary = (limits["rate_limit_reset_credits"] as? [String: Any])
+            ?? (nested["rate_limit_reset_credits"] as? [String: Any]),
+            let available = ProviderJSON.int(summary["available_count"]),
+            available >= 0
+        else { return nil }
+        return ResetCredits(availableCount: available)
+    }
+
+    func parseResetCredits(from object: [String: Any], now: Date = Date()) -> ResetCredits? {
+        let hasCreditsKey = object["credits"] is [Any]
+        let reportedCount = ProviderJSON.int(object["available_count"])
+        guard hasCreditsKey || reportedCount != nil else { return nil }
+        let rawList = (object["credits"] as? [Any]) ?? []
+        var items: [ResetCredit] = []
+        for (index, raw) in rawList.enumerated() {
+            guard let entry = raw as? [String: Any] else { continue }
+            if let status = (entry["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !status.isEmpty,
+               status.lowercased() != "available"
+            {
+                continue
+            }
+            let expiresAt = parseDate(entry["expires_at"])
+            if let expiresAt, expiresAt <= now { continue }
+            let label = resetCreditLabel(entry)
+            let rawID = (entry["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = (rawID?.isEmpty == false ? rawID! : "\(index)-\(label)-\(Int(expiresAt?.timeIntervalSince1970 ?? 0))")
+            items.append(ResetCredit(id: id, label: label, expiresAt: expiresAt))
+        }
+        items.sort {
+            ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture)
+        }
+        let count = !items.isEmpty ? items.count : max(0, reportedCount ?? 0)
+        return ResetCredits(availableCount: count, items: items)
+    }
+
+    private func resetCreditLabel(_ entry: [String: Any]) -> String {
+        if let title = (entry["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty
+        {
+            return title
+        }
+        let resetType = ((entry["reset_type"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch resetType {
+        case "primary", "five_hour", "5h", "session":
+            return "5-hour reset"
+        case "secondary", "weekly", "seven_day", "7d":
+            return "Weekly reset"
+        case "full", "all", "both", "":
+            return "Full reset"
+        default:
+            return ProviderJSON.capitalised(resetType.replacingOccurrences(of: "_", with: " "))
+        }
+    }
+
+    private func parseDate(_ raw: Any?) -> Date? {
+        if let text = raw as? String {
+            return JSONDate.parse(text)
+        }
+        if let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+            let value = number.doubleValue
+            guard value.isFinite, value > 0 else { return nil }
+            let seconds = value >= 100_000_000_000 ? value / 1000 : value
+            return Date(timeIntervalSince1970: seconds)
+        }
+        return nil
     }
 
     func window(id: String, from raw: Any?) -> LimitWindow? {

@@ -32,6 +32,8 @@ struct TooltipCard: View {
                             .padding(.top, 6)
                     }
                 }
+                ResetCreditsSection(credits: snapshot.resetCredits, accentColor: id.accentColor)
+                    .padding(.top, 9)
                 if !snapshot.sessions.isEmpty {
                     Divider()
                         .overlay(Color.white.opacity(0.12))
@@ -44,7 +46,9 @@ struct TooltipCard: View {
                 // The Grok card reports a failed update on its own source line.
                 if stale, grokBilling == nil {
                     if awaitingOwnerTool && id == .antigravity {
-                        note("Updates when you next open Antigravity")
+                        note(Text(
+                            "Can't update: last reading \(snapshot.fetchedAt, format: .relative(presentation: .named)). Updates when you next open Antigravity."
+                        ))
                     } else if awaitingOwnerTool {
                         note(Text(
                             "Last updated \(snapshot.fetchedAt, format: .relative(presentation: .named)). Updates when you next use \(id.renewingTool)."
@@ -105,6 +109,9 @@ struct TooltipCard: View {
         note(Text(verbatim: text))
     }
 
+    /// Product rows the Grok card draws; the rest are summed into one line.
+    static let maxGrokProductRows = 6
+
     private func grokBillingSection(snapshot: ProviderSnapshot, billing: GrokBilling, stale: Bool) -> some View {
         let overall = (snapshot.windows.first?.usedFraction ?? 0) * 100
         let caption = GrokCardText.periodCaption(billing: billing)
@@ -124,18 +131,23 @@ struct TooltipCard: View {
             }
             if !billing.products.isEmpty {
                 let showsBars = billing.products.count <= 4
+                // Rows past the card's cap fold into the "more products" line so the card keeps its height limit.
+                let visible = billing.products.prefix(Self.maxGrokProductRows)
+                let folded = billing.products.dropFirst(visible.count)
+                let omittedCount = billing.omittedProducts + folded.count
+                let omittedShare = billing.omittedProductPercent + folded.reduce(0) { $0 + $1.percentOfAllowance }
                 VStack(alignment: .leading, spacing: showsBars ? 3 : 2) {
-                    ForEach(billing.products) { share in
+                    ForEach(Array(visible)) { share in
                         grokProductRow(share, overall: overall, showsBar: showsBars)
                     }
                 }
                 .padding(.top, 5)
-                if billing.omittedProducts > 0 {
-                    let omittedPercent = GrokCardText.percent(billing.omittedProductPercent)
+                if omittedCount > 0 {
+                    let omittedPercent = GrokCardText.percent(omittedShare)
                     Text(
-                        billing.omittedProducts == 1
+                        omittedCount == 1
                             ? "1 more product: \(omittedPercent)"
-                            : "\(billing.omittedProducts) more products: \(omittedPercent)"
+                            : "\(omittedCount) more products: \(omittedPercent)"
                     )
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.5))
@@ -436,6 +448,145 @@ struct SessionRow: View {
         if seconds < 3600 { return "\(seconds / 60) min" }
         if seconds < 86400 { return "\(seconds / 3600) h" }
         return "\(seconds / 86400) d"
+    }
+}
+
+enum ResetCreditsStyle {
+    static let expiringSoonColor = Color(.sRGB, red: 245.0 / 255.0, green: 181.0 / 255.0, blue: 68.0 / 255.0, opacity: 1)
+}
+
+/// Pure formatting helpers for banked usage limit resets.
+nonisolated enum ResetCreditsText {
+    static func relativeRemaining(until expiresAt: Date, now: Date = Date()) -> String {
+        let seconds = max(0, expiresAt.timeIntervalSince(now))
+        if seconds < 3600 {
+            let minutes = max(1, Int((seconds / 60).rounded(.down)))
+            return "\(minutes)m"
+        }
+        if seconds < 86_400 {
+            let hours = max(1, Int((seconds / 3600).rounded(.down)))
+            return "\(hours)h"
+        }
+        let days = max(1, Int((seconds / 86_400).rounded(.down)))
+        return "\(days)d"
+    }
+
+    static func shortDate(_ date: Date, timeZone: TimeZone = .current) -> String {
+        date.formatted(Date.FormatStyle(timeZone: timeZone).month(.abbreviated).day())
+    }
+
+    static func dateAndTime(_ date: Date, timeZone: TimeZone = .current) -> String {
+        let day = date.formatted(Date.FormatStyle(timeZone: timeZone).month(.abbreviated).day())
+        let time = date.formatted(
+            Date.FormatStyle(timeZone: timeZone)
+                .hour(.twoDigits(amPM: .omitted))
+                .minute(.twoDigits)
+        )
+        return "\(day), \(time)"
+    }
+}
+
+/// Minimal inline list of banked usage limit resets inside a provider card (A1 layout).
+struct ResetCreditsSection: View {
+    let credits: ResetCredits?
+    let accentColor: Color
+    var now: Date = Date()
+
+    private static let maxVisibleRows = 6
+
+    var body: some View {
+        let active = credits?.activeItems(now: now) ?? []
+        let count = credits?.activeCount(now: now)
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+                .overlay(Color.white.opacity(0.12))
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Limit resets")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer(minLength: 8)
+                if let count {
+                    Text("\(count) available")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(count > 0 ? 0.55 : 0.45))
+                        .monospacedDigit()
+                } else {
+                    Text("Not available")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.42))
+                }
+            }
+            .padding(.top, 8)
+
+            if let count, count > 0 {
+                if active.isEmpty {
+                    Text("Expiration times unavailable")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.48))
+                        .padding(.top, 6)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(active.prefix(Self.maxVisibleRows)) { credit in
+                            row(for: credit)
+                        }
+                        if active.count > Self.maxVisibleRows {
+                            Text("+\(active.count - Self.maxVisibleRows) more")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.48))
+                                .monospacedDigit()
+                        }
+                    }
+                    .padding(.top, 7)
+                }
+            }
+            if count != nil, let checkedAt = credits?.checkedAt {
+                Text("From claude.ai, checked \(checkedAt, format: .relative(presentation: .named))")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.white.opacity(0.42))
+                    .padding(.top, 6)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(for credit: ResetCredit) -> some View {
+        let soon = ResetCredits.isExpiringSoon(credit.expiresAt, now: now)
+        let title = credit.count > 1 ? "\(credit.label) ×\(credit.count)" : credit.label
+        HStack(spacing: 6) {
+            Circle()
+                .fill(soon ? ResetCreditsStyle.expiringSoonColor : accentColor.opacity(0.75))
+                .frame(width: 5, height: 5)
+            Text(verbatim: title)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            expiryView(for: credit.expiresAt, soon: soon)
+        }
+    }
+
+    @ViewBuilder
+    private func expiryView(for expiresAt: Date?, soon: Bool) -> some View {
+        if let expiresAt {
+            if soon {
+                HStack(spacing: 0) {
+                    Text(verbatim: "\(ResetCreditsText.shortDate(expiresAt)) · ")
+                        .foregroundStyle(.white.opacity(0.86))
+                    Text(verbatim: ResetCreditsText.relativeRemaining(until: expiresAt, now: now))
+                        .fontWeight(.medium)
+                        .foregroundStyle(ResetCreditsStyle.expiringSoonColor)
+                }
+                .font(.system(size: 10))
+                .monospacedDigit()
+                .lineLimit(1)
+            } else {
+                Text(verbatim: ResetCreditsText.dateAndTime(expiresAt))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+        }
     }
 }
 
