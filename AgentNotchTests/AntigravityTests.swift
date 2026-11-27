@@ -16,11 +16,13 @@ struct AntigravityTests {
 
     private func discoveryFixture() -> AntigravityDiscovery {
         var discovery = AntigravityDiscovery()
+        discovery.isExecutable = { _ in true }
         discovery.files = { _ in [URL(fileURLWithPath: "/fake/hub_live.json")] }
-        discovery.read = { _ in Data(#"{"pid":42,"httpPort":1234,"csrfToken":"hub"}"#.utf8) }
+        discovery.read = { _ in Data(#"{"pid":42,"httpsPort":1234,"csrfToken":"hub"}"#.utf8) }
         discovery.alive = { $0 == 42 || $0 == 43 }
         discovery.run = { command, args in
             if command == "/bin/ps" {
+                if args.contains("42"), args.contains("pid=,comm=") { return "42 \(Self.server)" }
                 if args.contains("42") { return "42 \(getuid()) \(Self.server)" }
                 if args.contains("43") {
                     return "43 \(getuid()) \(Self.server) --csrf_token ide --extension_server_port 9999 --extension_server_csrf_token ext"
@@ -61,7 +63,7 @@ struct AntigravityTests {
             return Data(#"{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"weekly","remainingFraction":0.5}]}]}"#.utf8)
         }
         #expect(try await provider.fetch().headline?.label == "Gemini weekly")
-        #expect(await calls.all() == ["1234:false:RetrieveUserQuotaSummary"])
+        #expect(await calls.all() == ["1234:false:RetrieveUserQuotaSummary", "1234:false:GetUserStatus"])
     }
 
     /// Antigravity 2.35.2 has no GetUnleashData; a server that only 404s it must still be read.
@@ -109,8 +111,8 @@ struct AntigravityTests {
         n*:65536
         n*:12 (LISTEN)
         """) == [1234, 4321])
-        #expect(AntigravityDiscovery.parseCommand("/Applications/Antigravity.app/Contents/../Contents/language_server --csrf_token main") == nil)
-        #expect(discoveryFixture().processEndpoints().map(\.port) == [4321])
+        #expect(!discoveryFixture().validExecutable("/Applications/Antigravity.app/Contents/../Contents/language_server"))
+        #expect(discoveryFixture().processEndpoints()?.map(\.port) == [4321])
     }
 
     @Test func hubReaderRejectsSymlinkDirectoryAndOversizedFile() throws {
@@ -176,7 +178,7 @@ struct AntigravityTests {
             }
             return base(command, args)
         }
-        #expect(discovery.processEndpoints().isEmpty)
+        #expect(discovery.processEndpoints()?.isEmpty == true)
     }
 
     private final class TestTrustSpace: URLProtectionSpace, @unchecked Sendable {
@@ -208,10 +210,13 @@ struct AntigravityTests {
                 protectionSpace: TestTrustSpace(trust: trust, scheme: scheme), proposedCredential: nil,
                 previousFailureCount: 0, failureResponse: nil, error: nil, sender: ChallengeSender()
             )
-            delegate.urlSession(session, didReceive: challenge) { disposition, credential in
+            let verify: @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void = { disposition, credential in
                 #expect(disposition == (scheme == "https" ? .useCredential : .cancelAuthenticationChallenge))
                 #expect((credential != nil) == (scheme == "https"))
             }
+            delegate.urlSession(session, didReceive: challenge, completionHandler: verify)
+            let task = session.dataTask(with: URL(string: "\(scheme)://127.0.0.1:1234")!)
+            delegate.urlSession(session, task: task, didReceive: challenge, completionHandler: verify)
         }
     }
 
@@ -296,19 +301,17 @@ struct AntigravityTests {
         discovery.alive = { $0 == 42 }
         discovery.read = { url in
             Data("""
-            {"pid":\(url == live ? 42 : 41),"httpPort":1234,"csrfToken":"test-only"}
+            {"pid":\(url == live ? 42 : 41),"httpsPort":1234,"csrfToken":"test-only"}
             """.utf8)
         }
-        #expect(discovery.hub()?.port == 1234)
+        #expect(discovery.hubs().first?.https?.port == 1234)
         discovery.alive = { _ in false }
-        #expect(discovery.hub() == nil)
+        #expect(discovery.hubs().isEmpty)
 
-        let argv = "/Applications/Antigravity.app/Contents/Resources/language_server_macos_arm --csrf_token main --extension_server_port=4040 --extension_server_csrf_token ext"
-        let process = try #require(AntigravityDiscovery.parseCommand(argv))
-        #expect(process.token == "main")
-        #expect(process.extensionPort == 4040)
-        #expect(process.extensionToken == "ext")
-        #expect(AntigravityDiscovery.parseCommand("/tmp/language_server --csrf_token test") == nil)
+        let argv = "\(Self.server) --csrf_token main --extension_server_port=4040 --extension_server_csrf_token ext"
+        let args = try #require(AntigravityDiscovery.commandArguments(Substring(argv), executable: Self.server))
+        #expect(args.contains("--csrf_token main"))
+        #expect(AntigravityDiscovery.commandArguments("/tmp/language_server --csrf_token test", executable: Self.server) == nil)
     }
 
     @Test func loopbackAllowlistAndRedirectPolicy() throws {
