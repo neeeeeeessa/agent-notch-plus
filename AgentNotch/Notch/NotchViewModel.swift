@@ -270,7 +270,7 @@ final class NotchViewModel {
         guard providers.contains(id) else { return }
         spinTurns[id, default: 0] += 1
         refreshRollStart = Date().timeIntervalSinceReferenceDate
-        store.refresh(id)
+        store.refresh(id, manual: true)
     }
 
     func orbClicked() {

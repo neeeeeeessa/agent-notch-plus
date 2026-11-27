@@ -22,6 +22,7 @@ struct TooltipCard: View {
             header
             switch status {
             case .ready(let snapshot, let stale):
+                if id == .antigravity, let account = snapshot.account { note("\(account)") }
                 let grokBilling = id == .grokBuild ? snapshot.grokBilling : nil
                 if let grokBilling {
                     grokBillingSection(snapshot: snapshot, billing: grokBilling, stale: stale)

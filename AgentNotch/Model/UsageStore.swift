@@ -120,15 +120,18 @@ final class UsageStore {
         }
     }
 
-    func refreshAll() {
+    func refreshAll(manual: Bool = false) {
         for id in providers.keys where isEnabled(id) {
-            refresh(id)
+            refresh(id, manual: manual)
         }
     }
 
-    func refresh(_ id: ProviderID) {
+    func refreshTask(for id: ProviderID) -> Task<Void, Never>? { inFlight[id] }
+
+    func refresh(_ id: ProviderID, manual: Bool = false) {
         guard let provider = providers[id] else { return }
         guard isEnabled(id) else { return }
+        if manual { (provider as? AntigravityProvider)?.resetDiscoveryBackoff() }
         if inFlight[id] != nil {
             Self.log.debug("refresh skipped: one already in flight for \(id.rawValue)")
             return
@@ -247,7 +250,11 @@ final class UsageStore {
             case UsageProviderError.needsAuth(let message):
                 revokeCredential(id)
                 // The last reading stays up, dated, until the owning tool renews its sign-in.
-                if let previous {
+                if id == .antigravity, message == id.signInHint {
+                    statuses[id] = .needsAuth(message)
+                    restored.remove(id)
+                    saveReading(nil, for: id)
+                } else if let previous {
                     statuses[id] = .ready(previous, stale: true)
                     awaitingOwnerTool.insert(id)
                 } else {

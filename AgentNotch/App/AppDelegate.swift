@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = NotchViewModel(preferences: preferences, store: store)
         notch = NotchWindowController(model: model)
         let actions = MenuActions(
-            refreshAll: { store.refreshAll() },
+            refreshAll: { store.refreshAll(manual: true) },
             openSettings: { [weak self] in self?.settings.show() },
             checkForUpdates: { [weak self] in self?.updater.checkForUpdates() },
             canCheckForUpdates: { [weak self] in self?.updater.canCheckForUpdates ?? false },
