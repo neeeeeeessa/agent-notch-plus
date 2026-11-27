@@ -3,6 +3,19 @@
     <channel>
         <title>AgentNotch</title>
         <item>
+            <title>1.3.2</title>
+            <pubDate>Fri, 27 Nov 2026 15:54:21 +0100</pubDate>
+            <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
+            <sparkle:version>202611271453</sparkle:version>
+            <sparkle:shortVersionString>1.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## Fixed
+
+- **The real Antigravity logo.** The Antigravity circle and card now show Antigravity's own arch mark, matching how Claude, Codex and Grok appear. 1.3.0 and 1.3.1 showed a placeholder icon.
+]]></description>
+            <enclosure url="https://github.com/neeeeeeessa/agent-notch-plus/releases/download/v1.3.2/AgentNotchPlus.zip" length="4240216" type="application/octet-stream" sparkle:edSignature="gJkThpj7HaAm4foaa7RkzhMOgen7hONieeH4wCrZis1p+7ckWuOsXPqxBfVyZqZB7tjQ27PjzA/RPIO6eHzIAQ=="/>
+        </item>
+        <item>
             <title>1.3.1</title>
             <pubDate>Fri, 27 Nov 2026 15:49:31 +0100</pubDate>
             <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
@@ -44,15 +57,6 @@
 - **Flipping a switch quickly** on and off no longer leaves a stale approval behind.
 ]]></description>
             <enclosure url="https://github.com/neeeeeeessa/agent-notch-plus/releases/download/v1.3.0/AgentNotchPlus.zip" length="4220852" type="application/octet-stream" sparkle:edSignature="bMebRUJ8WrLcZvO2HQIM+pyHv/kle2oVXxZt1CBSc4iklM6F5ysQJIohVHW3JWA+F1DOMfRNsY9OtWbAFI8DAA=="/>
-        </item>
-        <item>
-            <title>1.2.2</title>
-            <pubDate>Thu, 29 Oct 2026 22:08:06 +0100</pubDate>
-            <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
-            <sparkle:version>202610292106</sparkle:version>
-            <sparkle:shortVersionString>1.2.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/neeeeeeessa/agent-notch-plus/releases/download/v1.2.2/AgentNotchPlus.zip" length="4067789" type="application/octet-stream" sparkle:edSignature="pomVdPveG9tRuEscW99LsmyoF7mID/gqTDY2RU2XYnd35u+iTuqq4tCTokvuYRucF/1s5MsukoYcMUl5t0r+Ag=="/>
         </item>
     </channel>
 </rss>
