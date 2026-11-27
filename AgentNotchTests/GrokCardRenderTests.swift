@@ -73,6 +73,18 @@ struct GrokCardRenderTests {
         return (store, defaults)
     }
 
+    @Test func antigravityCardRendersLiteralAccountPlanAndWindowLabels() throws {
+        let snapshot = ProviderSnapshot(
+            id: .antigravity, account: "*test_user*@example.invalid", plan: "*Sample_Plus*",
+            windows: [LimitWindow(id: "gemini", label: "*Model_Name*", usedFraction: 0.5, resetsAt: nil)],
+            fetchedAt: .now
+        )
+        let card = TooltipCard(id: .antigravity, status: .ready(snapshot, stale: false),
+                               direction: .pointsRight, tailCenter: 40)
+        let size = try render(card, "card-antigravity-literal")
+        #expect(size.height > 0 && size.height <= NotchMetrics.tooltipMaxHeight)
+    }
+
     @Test func threeCircleNotchAndGrokCardRenderAndFitEveryEdge() async throws {
         let (store, defaults) = await store(grokSnapshot(extra: false))
         for edge in NotchEdge.allCases {
