@@ -31,8 +31,11 @@ nonisolated struct LimitEvent: Equatable, Sendable {
             }
         }
 
-        for old in previous.windows where !currentIDs.contains(old.id) && old.band == .exhausted {
-            events.append(LimitEvent(provider: current.id, windowID: old.id, kind: .reset))
+        // Antigravity can switch between grouped and per-model readings. Missing windows are unknown.
+        if current.id != .antigravity {
+            for old in previous.windows where !currentIDs.contains(old.id) && old.band == .exhausted {
+                events.append(LimitEvent(provider: current.id, windowID: old.id, kind: .reset))
+            }
         }
         return events
     }
