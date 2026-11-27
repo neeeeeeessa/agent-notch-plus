@@ -3,6 +3,36 @@
     <channel>
         <title>AgentNotch</title>
         <item>
+            <title>1.3.0</title>
+            <pubDate>Fri, 27 Nov 2026 15:28:50 +0100</pubDate>
+            <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
+            <sparkle:version>202611271427</sparkle:version>
+            <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## Antigravity joins the notch
+
+- **A new Antigravity circle.** It fills as you use your Gemini 5-hour limit, the same way Claude's ring follows its session.
+- **A full card on hover.** Hover the circle for four limits: Gemini session, Gemini weekly, Claude + GPT session and Claude + GPT weekly. Each shows its reset time, and the card also shows your account and plan.
+- **It stays on your Mac.** Usage comes straight from the Antigravity app over an encrypted local connection, and nothing is sent anywhere else.
+- **To turn it on:** open Antigravity, sign in, then switch Antigravity on in Settings.
+
+## Choose the assistants you use
+
+- **One switch per assistant in Settings.** On: the circle shows in the notch and its usage is read. Off: it leaves the notch and nothing is read.
+- **New installs start empty.** The notch shows a **Choose assistants** button that opens Settings.
+- **Updating?** The assistants you already had turned on stay on. Assistants you never turned on no longer appear as empty circles.
+
+## Steadier
+
+- **Antigravity closed:** the circle keeps its last reading, dimmed, and updates on its own when you reopen it.
+- **Signed out of Antigravity:** the card asks you to sign in instead of passing off an old reading as current.
+- **Switching Antigravity accounts:** no false "limit reset" or "limit reached" alerts.
+- **Account and plan names** with underscores or asterisks now display exactly as written.
+- **Flipping a switch quickly** on and off no longer leaves a stale approval behind.
+]]></description>
+            <enclosure url="https://github.com/neeeeeeessa/agent-notch-plus/releases/download/v1.3.0/AgentNotchPlus.zip" length="4220852" type="application/octet-stream" sparkle:edSignature="bMebRUJ8WrLcZvO2HQIM+pyHv/kle2oVXxZt1CBSc4iklM6F5ysQJIohVHW3JWA+F1DOMfRNsY9OtWbAFI8DAA=="/>
+        </item>
+        <item>
             <title>1.2.2</title>
             <pubDate>Thu, 29 Oct 2026 22:08:06 +0100</pubDate>
             <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
@@ -19,15 +49,6 @@
             <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/neeeeeeessa/agent-notch-plus/releases/download/v1.2.1/AgentNotchPlus.zip" length="4057592" type="application/octet-stream" sparkle:edSignature="cWmeVY+4LdFaFo55wd4jhW7Vjydm9ROmU6bRoAAkqlrOACUgPCLFSrHJT7zgcoLdRV58xrMHoJxvKUpURJgjAw=="/>
-        </item>
-        <item>
-            <title>1.2.0</title>
-            <pubDate>Tue, 27 Oct 2026 20:45:13 +0100</pubDate>
-            <link>https://github.com/neeeeeeessa/agent-notch-plus</link>
-            <sparkle:version>202610251922</sparkle:version>
-            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/neeeeeeessa/agent-notch-plus/releases/download/v1.2.0/AgentNotchPlus.zip" length="4051022" type="application/octet-stream" sparkle:edSignature="BNtcFiTuZYZezo7/GFrT5hnD6/ewbdF0HSvb1N0xIPPpOn5Z26xqZtWf3uqwf2XIb2lGTNsYFA1qUaqGk00nDg=="/>
         </item>
     </channel>
 </rss>
