@@ -3,7 +3,7 @@
 Agent Notch Plus puts Claude, Codex, Grok, and Antigravity usage in the Mac notch.
 
 <p align="center">
-  <img src="docs/hover.gif" alt="Hover the closed notch, then Claude, Codex, and Grok" width="460" />
+  <img src="docs/hover.gif" alt="Hovering the closed notch opens the usage circles" width="460" />
 </p>
 
 [Agent Notch Plus](https://github.com/neeeeeeessa/agent-notch-plus) is developed by [Vanessa Simões](https://x.com/enchantedcode). Forked from [Agent Notch](https://github.com/itslucadev/AgentNotch) by Luca Becker.
@@ -11,6 +11,10 @@ Agent Notch Plus puts Claude, Codex, Grok, and Antigravity usage in the Mac notc
 ## What it does
 
 The circles sit on the edge of the screen. Hover one for its detail card. Click one to refresh that circle only.
+
+You choose which assistants appear. Each one has a single switch in Settings. When it is on, the app reads that assistant's usage and shows its circle. When it is off, the circle leaves the notch and nothing is read. With every switch off, the notch shows a **Choose assistants** button that opens Settings.
+
+The Antigravity circle follows your Gemini 5-hour limit. Its card lists the Gemini and the Claude + GPT limits, each with a 5-hour and a weekly window and its reset time.
 
 You can put the notch on the right, left, top, or bottom edge. It can stay open, collapse to a pill that opens when you reach it, or stay hidden. The app icon can live in the Dock, in the menu bar, or nowhere.
 
@@ -20,10 +24,11 @@ The app does not create an account. Claude uses the sign-in Claude Code already 
 
 Agent Notch's third circle is Cursor, and its rings turn green, yellow, and red as a limit fills. This fork changes that, and a few behaviors around it.
 
-- The circles are Claude, Codex, Grok, and Antigravity. Cursor is a row on the Grok card. That card is one weekly allowance shared by Grok Build, Grok Bot, and Cursor, with the per-product split the server reports.
+- The circles are Claude, Codex, Grok, and Antigravity, and you pick which ones show. Cursor is a row on the Grok card. That card is one weekly allowance shared by Grok Build, Grok Bot, and Cursor, with the per-product split the server reports.
+- Antigravity is read from the Antigravity app on your Mac, over an encrypted connection to `127.0.0.1`. No Antigravity request leaves the Mac.
 - Each provider has a fixed color. The color stays put as usage rises.
 - Usage access starts off. Each assistant switch enables usage access and shows its circle. A token goes only to that provider's usage host. The app never refreshes a token itself. When the Grok sign-in expires, it asks the Grok CLI to renew its own sign-in.
-- After a restart, each circle shows its last reading, dimmed and dated, until a new one arrives. When Claude Code's or Codex's sign-in has expired, the card says the numbers update when you next use that tool.
+- After a restart, each circle shows its last reading, dimmed and dated, until a new one arrives. When Claude Code's or Codex's sign-in has expired, the card says the numbers update when you next use that tool. When Antigravity is closed, its card says it updates when you next open Antigravity.
 - When a usage endpoint rate-limits, the last good reading stays bright through the cooldown.
 - A click refreshes only the circle you hit.
 - The mascot stays still while you are away.
@@ -31,7 +36,7 @@ Agent Notch's third circle is Cursor, and its rings turn green, yellow, and red 
 
 ## Requirements
 
-macOS 26 or later, and Xcode to build. Sign in to Claude Code, Codex, the Grok CLI, or Antigravity before you expect live numbers. Download the latest signed and notarized build from [Releases](https://github.com/neeeeeeessa/agent-notch-plus/releases); it keeps itself up to date.
+macOS 26 or later, and Xcode to build. Sign in to Claude Code, Codex, the Grok CLI, or Antigravity (tested with Antigravity 2.35) before you expect live numbers. Download the latest signed and notarized build from [Releases](https://github.com/neeeeeeessa/agent-notch-plus/releases); it keeps itself up to date.
 
 ## Build
 
@@ -62,8 +67,8 @@ Open Settings from the menu bar icon, or from the Dock icon if you left the app 
 - Claude asks macOS for permission to read the Claude Code keychain item.
 - Codex reads `~/.codex/auth.json` when that file is readable. Otherwise it asks for the Codex Auth keychain item.
 - Grok reads `~/.grok/auth.json`. Sign in with the Grok CLI before you turn that switch on.
-- Antigravity reads usage from the local Antigravity app while it runs. Open Antigravity and sign in for live readings.
+- Antigravity needs no permission prompt. It reads usage from the Antigravity app while it runs, so open Antigravity and sign in. When Antigravity is closed, its circle keeps the last reading, dimmed, and updates again once you reopen it.
 
 ## Releasing
 
-Maintainers publish a signed, notarized build with `Scripts/release.sh v1.2`. The script lists its one-time setup at the top. The signing certificate, notary credentials and update key stay in the maintainer's keychain, and the team ID lives in an uncommitted `.env`.
+Maintainers publish a signed, notarized build with `Scripts/release.sh v1.3.0`. The script lists its one-time setup at the top. When `docs/releases/<tag>.md` exists, it becomes the release page's notes and the "What's new" text in the in-app update window. The signing certificate, notary credentials and update key stay in the maintainer's keychain, and the team ID lives in an uncommitted `.env`.
