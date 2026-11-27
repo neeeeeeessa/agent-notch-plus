@@ -9,12 +9,91 @@ struct ProviderGlyph: View {
         case .claude: ClaudeSparkle()
         case .codex: OpenAIKnot()
         case .grokBuild: GrokMark()
-        case .antigravity:
-            ZStack {
-                Ellipse().strokeBorder(lineWidth: 1.4).scaleEffect(x: 1, y: 0.53).rotationEffect(.degrees(-40))
-                Image(systemName: "arrow.up").resizable().scaledToFit().padding(4)
-            }
+        case .antigravity: AntigravityMark()
         }
+    }
+}
+
+/// Antigravity's arch mark, traced from the Antigravity app icon and normalised to a unit square.
+private struct AntigravityMark: View {
+    var body: some View {
+        AntigravityOutline()
+    }
+}
+
+private struct AntigravityOutline: Shape {
+    func path(in rect: CGRect) -> Path {
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+        }
+        var path = Path()
+        path.move(to: p(0.4879, 0.0325))
+        path.addCurve(to: p(0.5439, 0.0358), control1: p(0.5063, 0.0306), control2: p(0.5259, 0.0318))
+        path.addCurve(to: p(0.5958, 0.0568), control1: p(0.5618, 0.0399), control2: p(0.58, 0.0473))
+        path.addCurve(to: p(0.6389, 0.0929), control1: p(0.6117, 0.0663), control2: p(0.626, 0.0794))
+        path.addCurve(to: p(0.673, 0.1375), control1: p(0.6518, 0.1063), control2: p(0.6629, 0.1218))
+        path.addCurve(to: p(0.6998, 0.187), control1: p(0.6832, 0.1532), control2: p(0.6917, 0.1701))
+        path.addCurve(to: p(0.7219, 0.2387), control1: p(0.708, 0.2038), control2: p(0.7152, 0.2212))
+        path.addCurve(to: p(0.7404, 0.2919), control1: p(0.7287, 0.2562), control2: p(0.7346, 0.2741))
+        path.addCurve(to: p(0.7569, 0.3458), control1: p(0.7463, 0.3098), control2: p(0.7516, 0.3277))
+        path.addCurve(to: p(0.7721, 0.4), control1: p(0.7622, 0.3638), control2: p(0.767, 0.3819))
+        path.addCurve(to: p(0.7872, 0.4542), control1: p(0.7771, 0.4181), control2: p(0.7821, 0.4362))
+        path.addCurve(to: p(0.8028, 0.5083), control1: p(0.7923, 0.4723), control2: p(0.7975, 0.4903))
+        path.addCurve(to: p(0.819, 0.5622), control1: p(0.8081, 0.5263), control2: p(0.8134, 0.5443))
+        path.addCurve(to: p(0.8365, 0.6157), control1: p(0.8246, 0.5801), control2: p(0.8305, 0.598))
+        path.addCurve(to: p(0.8551, 0.6689), control1: p(0.8426, 0.6335), control2: p(0.8485, 0.6513))
+        path.addCurve(to: p(0.8763, 0.7211), control1: p(0.8617, 0.6864), control2: p(0.8686, 0.7039))
+        path.addCurve(to: p(0.9008, 0.7717), control1: p(0.8839, 0.7382), control2: p(0.892, 0.7552))
+        path.addCurve(to: p(0.9296, 0.8201), control1: p(0.9097, 0.7882), control2: p(0.9191, 0.8046))
+        path.addCurve(to: p(0.9638, 0.8648), control1: p(0.9401, 0.8356), control2: p(0.9521, 0.8501))
+        path.addCurve(to: p(1, 0.9079), control1: p(0.9756, 0.8794), control2: p(0.994, 0.8923))
+        path.addCurve(to: p(0.9996, 0.9582), control1: p(1.006, 0.9234), control2: p(1.0086, 0.9492))
+        path.addCurve(to: p(0.946, 0.9617), control1: p(0.9906, 0.9672), control2: p(0.9629, 0.966))
+        path.addCurve(to: p(0.898, 0.9326), control1: p(0.929, 0.9575), control2: p(0.913, 0.9437))
+        path.addCurve(to: p(0.8556, 0.8956), control1: p(0.8829, 0.9216), control2: p(0.8692, 0.9086))
+        path.addCurve(to: p(0.8169, 0.8547), control1: p(0.8421, 0.8826), control2: p(0.829, 0.8691))
+        path.addCurve(to: p(0.7831, 0.8098), control1: p(0.8048, 0.8404), control2: p(0.7938, 0.8251))
+        path.addCurve(to: p(0.7525, 0.7625), control1: p(0.7723, 0.7944), control2: p(0.7623, 0.7785))
+        path.addCurve(to: p(0.7239, 0.714), control1: p(0.7426, 0.7465), control2: p(0.7335, 0.7301))
+        path.addCurve(to: p(0.695, 0.6656), control1: p(0.7144, 0.6978), control2: p(0.7052, 0.6814))
+        path.addCurve(to: p(0.6632, 0.6193), control1: p(0.6849, 0.6499), control2: p(0.6749, 0.6338))
+        path.addCurve(to: p(0.6247, 0.5783), control1: p(0.6514, 0.6047), control2: p(0.639, 0.59))
+        path.addCurve(to: p(0.5769, 0.549), control1: p(0.6103, 0.5666), control2: p(0.594, 0.556))
+        path.addCurve(to: p(0.5222, 0.5364), control1: p(0.5598, 0.542), control2: p(0.5406, 0.5379))
+        path.addCurve(to: p(0.4662, 0.5402), control1: p(0.5037, 0.5349), control2: p(0.4843, 0.5362))
+        path.addCurve(to: p(0.4139, 0.5601), control1: p(0.4482, 0.5441), control2: p(0.4299, 0.551))
+        path.addCurve(to: p(0.3699, 0.5951), control1: p(0.3978, 0.5693), control2: p(0.3831, 0.582))
+        path.addCurve(to: p(0.3347, 0.6389), control1: p(0.3568, 0.6082), control2: p(0.3456, 0.6237))
+        path.addCurve(to: p(0.3046, 0.6865), control1: p(0.3238, 0.6542), control2: p(0.3144, 0.6705))
+        path.addCurve(to: p(0.2761, 0.7351), control1: p(0.2949, 0.7026), control2: p(0.2857, 0.719))
+        path.addCurve(to: p(0.2468, 0.7832), control1: p(0.2664, 0.7512), control2: p(0.2569, 0.7674))
+        path.addCurve(to: p(0.2152, 0.8298), control1: p(0.2367, 0.7989), control2: p(0.2264, 0.8148))
+        path.addCurve(to: p(0.1793, 0.8731), control1: p(0.2039, 0.8447), control2: p(0.192, 0.8593))
+        path.addCurve(to: p(0.1392, 0.9126), control1: p(0.1666, 0.8869), control2: p(0.1533, 0.9003))
+        path.addCurve(to: p(0.0947, 0.947), control1: p(0.1251, 0.9249), control2: p(0.1107, 0.9378))
+        path.addCurve(to: p(0.0428, 0.9675), control1: p(0.0786, 0.9561), control2: p(0.0586, 0.9684))
+        path.addCurve(to: p(0, 0.9416), control1: p(0.0271, 0.9666), control2: p(0.0031, 0.9541))
+        path.addCurve(to: p(0.0244, 0.8925), control1: p(-0.0031, 0.9291), control2: p(0.0142, 0.9078))
+        path.addCurve(to: p(0.0613, 0.8499), control1: p(0.0347, 0.8772), control2: p(0.0498, 0.8647))
+        path.addCurve(to: p(0.0935, 0.8038), control1: p(0.0728, 0.8351), control2: p(0.0836, 0.8197))
+        path.addCurve(to: p(0.1203, 0.7543), control1: p(0.1033, 0.7878), control2: p(0.1119, 0.7711))
+        path.addCurve(to: p(0.144, 0.7032), control1: p(0.1288, 0.7375), control2: p(0.1367, 0.7205))
+        path.addCurve(to: p(0.1641, 0.6506), control1: p(0.1513, 0.6859), control2: p(0.1578, 0.6683))
+        path.addCurve(to: p(0.1822, 0.5973), control1: p(0.1705, 0.633), control2: p(0.1764, 0.6152))
+        path.addCurve(to: p(0.199, 0.5436), control1: p(0.1881, 0.5795), control2: p(0.1936, 0.5615))
+        path.addCurve(to: p(0.2148, 0.4895), control1: p(0.2044, 0.5256), control2: p(0.2096, 0.5076))
+        path.addCurve(to: p(0.23, 0.4353), control1: p(0.2199, 0.4715), control2: p(0.2249, 0.4534))
+        path.addCurve(to: p(0.2455, 0.3812), control1: p(0.2351, 0.4173), control2: p(0.2403, 0.3992))
+        path.addCurve(to: p(0.2613, 0.3272), control1: p(0.2507, 0.3632), control2: p(0.2558, 0.3451))
+        path.addCurve(to: p(0.2788, 0.2736), control1: p(0.2669, 0.3092), control2: p(0.2727, 0.2914))
+        path.addCurve(to: p(0.2981, 0.2208), control1: p(0.2849, 0.2559), control2: p(0.291, 0.2381))
+        path.addCurve(to: p(0.3216, 0.1696), control1: p(0.3053, 0.2034), control2: p(0.3129, 0.1862))
+        path.addCurve(to: p(0.3506, 0.1214), control1: p(0.3304, 0.153), control2: p(0.3396, 0.1365))
+        path.addCurve(to: p(0.3876, 0.079), control1: p(0.3616, 0.1063), control2: p(0.3737, 0.0914))
+        path.addCurve(to: p(0.4339, 0.0475), control1: p(0.4014, 0.0667), control2: p(0.4172, 0.0553))
+        path.addCurve(to: p(0.4879, 0.0325), control1: p(0.4507, 0.0398), control2: p(0.4696, 0.0345))
+        path.closeSubpath()
+        return path
     }
 }
 
