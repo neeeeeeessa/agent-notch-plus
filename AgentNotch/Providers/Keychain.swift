@@ -551,7 +551,7 @@ nonisolated enum LocalSecurityTool {
         var stop: Stop?
         var buffer = [UInt8](repeating: 0, count: 16 * 1024)
         while stop == nil {
-            if Date() >= deadline {
+            if Task.isCancelled || Date() >= deadline {
                 stop = .timeout
                 break
             }
