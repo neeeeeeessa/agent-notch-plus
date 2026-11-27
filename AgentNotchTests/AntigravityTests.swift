@@ -1,8 +1,179 @@
 import Foundation
+import Security
 import Testing
 @testable import AgentNotch
 
 struct AntigravityTests {
+    private static let server = "/Applications/Antigravity.app/Contents/Resources/language_server_macos_arm"
+
+    private actor Calls {
+        private var values: [String] = []
+        func record(_ endpoint: AntigravityEndpoint, _ method: AntigravityEndpoint.Method) {
+            values.append("\(endpoint.port):\(endpoint.plainHTTP):\(method.rawValue)")
+        }
+        func all() -> [String] { values }
+    }
+
+    private func discoveryFixture() -> AntigravityDiscovery {
+        var discovery = AntigravityDiscovery()
+        discovery.files = { _ in [URL(fileURLWithPath: "/fake/hub_live.json")] }
+        discovery.read = { _ in Data(#"{"pid":42,"httpPort":1234,"csrfToken":"hub"}"#.utf8) }
+        discovery.alive = { $0 == 42 || $0 == 43 }
+        discovery.run = { command, args in
+            if command == "/bin/ps" {
+                if args.contains("-p") { return "42 \(getuid()) \(Self.server)" }
+                return "43 \(Self.server) --csrf_token ide --extension_server_port 9999 --extension_server_csrf_token ext"
+            }
+            return args.contains("42") ? "n127.0.0.1:1234" : "n127.0.0.1:4321"
+        }
+        return discovery
+    }
+
+    @Test func deadHubFallsThroughToProcessAndOnlyTransportErrorAllowsHTTP() async throws {
+        let calls = Calls()
+        let provider = AntigravityProvider(discovery: discoveryFixture()) { endpoint, method in
+            await calls.record(endpoint, method)
+            if endpoint.port == 1234 { throw UsageProviderError.unavailable("HTTP error") }
+            if !endpoint.plainHTTP { throw URLError(.secureConnectionFailed) }
+            switch method {
+            case .probe: return Data()
+            case .summary: throw UsageProviderError.unavailable("Missing summary")
+            case .status:
+                return Data(#"{"userStatus":{"cascadeModelConfigData":{"clientModelConfigs":[{"label":"Gemini","quotaInfo":{"remainingFraction":0.5}}]}}}"#.utf8)
+            }
+        }
+        #expect(try await provider.fetch().headline?.usedFraction == 0.5)
+        #expect(await calls.all() == [
+            "1234:false:GetUnleashData", "4321:false:GetUnleashData", "4321:true:GetUnleashData",
+            "4321:true:RetrieveUserQuotaSummary", "4321:true:GetUserStatus",
+        ])
+    }
+
+    @Test func reachableHubUsesHTTPSAndSkipsProcessProbe() async throws {
+        let calls = Calls()
+        let provider = AntigravityProvider(discovery: discoveryFixture()) { endpoint, method in
+            await calls.record(endpoint, method)
+            return Data(#"{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"weekly","remainingFraction":0.5}]}]}"#.utf8)
+        }
+        #expect(try await provider.fetch().headline?.label == "Gemini weekly")
+        #expect(await calls.all() == ["1234:false:GetUnleashData", "1234:false:RetrieveUserQuotaSummary"])
+    }
+
+    @Test func listenerFilteringAndExecutableTraversal() {
+        #expect(AntigravityDiscovery.parseListeningPorts("""
+        p42
+        n*:1234
+        n127.0.0.1:4321
+        n[::1]:9000
+        n192.168.1.1:9001
+        n127.0.0.10:9002
+        n*:65536
+        n*:12 (LISTEN)
+        """) == [1234, 4321])
+        #expect(AntigravityDiscovery.parseCommand("/Applications/Antigravity.app/Contents/../Contents/language_server --csrf_token main") == nil)
+        #expect(discoveryFixture().processEndpoints().map(\.port) == [4321])
+    }
+
+    @Test func hubReaderRejectsSymlinkDirectoryAndOversizedFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("hub_real.json")
+        let link = directory.appendingPathComponent("hub_link.json")
+        let data = Data("{}".utf8)
+        try data.write(to: file)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        #expect(AntigravityDiscovery.readHubFile(file) == data)
+        #expect(AntigravityDiscovery.readHubFile(link) == nil)
+        #expect(AntigravityDiscovery.readHubFile(directory) == nil)
+        try Data(count: 65537).write(to: file)
+        #expect(AntigravityDiscovery.readHubFile(file) == nil)
+    }
+
+    @Test func datesAndVerifiedFullQuota() throws {
+        #expect(AntigravityQuota.date(true) == nil)
+        #expect(AntigravityQuota.date(1795780800250) == Date(timeIntervalSince1970: 1795780800.25))
+        #expect(AntigravityQuota.date(["seconds": "1795780800", "nanos": 250000000]) == Date(timeIntervalSince1970: 1795780800.25))
+        #expect(AntigravityQuota.date(["seconds": 1795780800, "nanos": true]) == nil)
+        func quota(_ fields: String) throws -> ProviderSnapshot {
+            try AntigravityQuota.parse(Data("""
+            {"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"weekly",\(fields)}]}]}
+            """.utf8), grouped: true)
+        }
+        #expect(throws: UsageProviderError.self) { try quota(#""remainingFraction":1,"resetTime":true"#) }
+        #expect(throws: UsageProviderError.self) { try quota(#""remainingFraction":false"#) }
+        #expect(try quota(#""remainingFraction":1,"verified":true"#).headline?.usedFraction == 0)
+        #expect(try quota(#""remainingFraction":1,"resetTime":1795780800"#).headline?.usedFraction == 0)
+    }
+
+    @Test func cadenceUsesBucketMetadataAndTiesPreferKnownReset() throws {
+        let snapshot = try AntigravityQuota.parse(Data("""
+        {"groups":[{"displayName":"Gemini","buckets":[
+          {"bucketId":"five-hour","remainingFraction":0.5,"description":"Also has weekly quota"},
+          {"bucketId":"five-hour","remainingFraction":0.5,"resetTime":1795780800}
+        ]},{"displayName":"Other","buckets":[{"bucketId":"weekly","remainingFraction":0}]}]}
+        """.utf8), grouped: true)
+        #expect(snapshot.windows.map(\.label) == ["Gemini session"])
+        #expect(snapshot.headline?.resetsAt == Date(timeIntervalSince1970: 1795780800))
+    }
+
+    private final class TestTrustSpace: URLProtectionSpace, @unchecked Sendable {
+        let testTrust: SecTrust
+
+        init(trust: SecTrust, scheme: String) {
+            testTrust = trust
+            super.init(host: "127.0.0.1", port: 1234, protocol: scheme, realm: nil,
+                       authenticationMethod: NSURLAuthenticationMethodServerTrust)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override var serverTrust: SecTrust? { testTrust }
+    }
+
+    @Test func trustChallengeAcceptsLoopbackHTTPSAndRejectsHTTP() throws {
+        // Synthetic self-signed certificate. The delegate scopes trust without evaluating its validity dates.
+        let der = try #require(Data(base64Encoded: "MIIBWzCCAQKgAwIBAgIUbqQ8sw9THdjEwhDc/PL+vSe7zngwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJMTI3LjAuMC4xMB4XDTI2MTEyNzEyMzk0MFoXDTI2MTEyODEyMzk0MFowFDESMBAGA1UEAwwJMTI3LjAuMC4xMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2MfEYrJaALWf+YMY0+U26g9bj8kEZ/S+ZaNNq5YyA9cJlV9muMMg0ydKiaFxNJyW5EsYlh61rFVygI92keldWaMyMDAwHQYDVR0OBBYEFMJNBMLlxCYZRQEQTls4x/Fm0FQcMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDRwAwRAIgLF0XMxod3yf56/JnksqWnlJZkiETjyU+k9WYP3qHv9oCIH570SSoMjxPJbw390wdbFn/tpCM/8XnHKIvYBGdLWTk"))
+        let certificate = try #require(SecCertificateCreateWithData(nil, der as CFData))
+        var createdTrust: SecTrust?
+        #expect(SecTrustCreateWithCertificates(certificate, SecPolicyCreateBasicX509(), &createdTrust) == errSecSuccess)
+        let trust = try #require(createdTrust)
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let delegate = AntigravityLoopbackDelegate(port: 1234)
+        for scheme in ["https", "http"] {
+            let challenge = URLAuthenticationChallenge(
+                protectionSpace: TestTrustSpace(trust: trust, scheme: scheme), proposedCredential: nil,
+                previousFailureCount: 0, failureResponse: nil, error: nil, sender: ChallengeSender()
+            )
+            delegate.urlSession(session, didReceive: challenge) { disposition, credential in
+                #expect(disposition == (scheme == "https" ? .useCredential : .cancelAuthenticationChallenge))
+                #expect((credential != nil) == (scheme == "https"))
+            }
+        }
+    }
+
+    private final class ChallengeSender: NSObject, URLAuthenticationChallengeSender {
+        func use(_ credential: URLCredential, for challenge: URLAuthenticationChallenge) {}
+        func continueWithoutCredential(for challenge: URLAuthenticationChallenge) {}
+        func cancel(_ challenge: URLAuthenticationChallenge) {}
+    }
+
+    @Test func trustIsLimitedToServerTrustOnTheDiscoveredHTTPSPort() {
+        let delegate = AntigravityLoopbackDelegate(port: 1234)
+        func space(_ host: String = "127.0.0.1", _ port: Int = 1234, _ scheme: String = "https",
+                   _ method: String = NSURLAuthenticationMethodServerTrust) -> URLProtectionSpace {
+            URLProtectionSpace(host: host, port: port, protocol: scheme, realm: nil, authenticationMethod: method)
+        }
+        #expect(delegate.allowsTrust(in: space()))
+        #expect(!delegate.allowsTrust(in: space("localhost")))
+        #expect(!delegate.allowsTrust(in: space("127.0.0.1", 1235)))
+        #expect(!delegate.allowsTrust(in: space("127.0.0.1", 1234, "http")))
+        #expect(!delegate.allowsTrust(in: space("127.0.0.1", 1234, "https", NSURLAuthenticationMethodHTTPBasic)))
+        #expect(!delegate.allowsTrust(in: URLProtectionSpace(proxyHost: "127.0.0.1", port: 1234,
+            type: NSURLProtectionSpaceHTTPSProxy, realm: nil, authenticationMethod: NSURLAuthenticationMethodServerTrust)))
+    }
+
     @Test func groupedWindowsAreOrderedAndWeeklyOnlyCanLead() throws {
         let payload = Data("""
         {"response":{"groups":[
@@ -33,7 +204,8 @@ struct AntigravityTests {
            {"label":"Gemini B","quotaInfo":{"remainingFraction":0.25,"resetTime":1795780800}},
            {"label":"Gemini C","quotaInfo":{"resetTime":1795780900}},
            {"label":"Claude","quotaInfo":{"remainingFraction":0.5,"resetTime":"2026-11-27T13:00:00Z"}},
-           {"label":"GPT"}
+           {"label":"GPT"},
+           {"label":"Other","quotaInfo":{"remainingFraction":0}}
          ]}}}
         """.utf8)
         let snapshot = try AntigravityQuota.parse(payload, grouped: false)
@@ -57,7 +229,7 @@ struct AntigravityTests {
     @Test func discoverySkipsStaleHubAndParsesAntigravityArgv() throws {
         let stale = URL(fileURLWithPath: "/fake/hub_stale.json")
         let live = URL(fileURLWithPath: "/fake/hub_live.json")
-        var discovery = AntigravityDiscovery()
+        var discovery = discoveryFixture()
         discovery.files = { _ in [stale, live] }
         discovery.alive = { $0 == 42 }
         discovery.read = { url in
