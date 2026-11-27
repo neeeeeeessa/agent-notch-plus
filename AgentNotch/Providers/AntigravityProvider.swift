@@ -1,6 +1,8 @@
+import AppKit
 import CoreFoundation
 import Foundation
 import Security
+import Synchronization
 
 nonisolated struct AntigravityProvider: UsageProvider {
     let id = ProviderID.antigravity
@@ -10,19 +12,38 @@ nonisolated struct AntigravityProvider: UsageProvider {
         try await $0.post($1)
     }
 
+    private final class DiscoveryCache: Sendable {
+        let lastMiss = Mutex<ContinuousClock.Instant?>(nil)
+    }
+    private let discoveryCache = DiscoveryCache()
+    var now: @Sendable () -> ContinuousClock.Instant = { .now }
+    var appIsRunning: @Sendable () -> Bool = {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.antigravity").isEmpty
+    }
+
     @concurrent
     func fetch() async throws -> ProviderSnapshot {
+        try Task.checkCancellation()
         let hub = discovery.hub()
         try Task.checkCancellation()
         var answeredWithout: UsageProviderError?
         if let hub {
+            discoveryCache.lastMiss.withLock { $0 = nil }
             do {
                 if let snapshot = try await read(hub) { return snapshot }
             } catch let error as UsageProviderError {
                 answeredWithout = error
             }
         }
-        for candidate in discovery.processEndpoints() {
+        let shouldScan = discoveryCache.lastMiss.withLock { miss in
+            miss.map { now() - $0 >= .seconds(120) } ?? true
+        }
+        // IDE installs can start a language server without creating a hub.
+        let mayScan = shouldScan || appIsRunning()
+        let candidates = mayScan ? discovery.processEndpoints() : []
+        try Task.checkCancellation()
+        if mayScan && candidates.isEmpty { discoveryCache.lastMiss.withLock { $0 = now() } }
+        for candidate in candidates where candidate != hub {
             try Task.checkCancellation()
             do {
                 if let snapshot = try await read(candidate) { return snapshot }
@@ -82,7 +103,8 @@ nonisolated struct AntigravityProvider: UsageProvider {
 
 }
 
-nonisolated struct AntigravityEndpoint {
+nonisolated struct AntigravityEndpoint: Equatable {
+    static let maxResponseBytes = 2 * 1024 * 1024
     enum Method: String, CaseIterable {
         case summary = "RetrieveUserQuotaSummary"
         case status = "GetUserStatus"
@@ -103,7 +125,7 @@ nonisolated struct AntigravityEndpoint {
         return Method.allCases.contains { parts.percentEncodedPath == Self.path + $0.rawValue }
     }
 
-    func post(_ method: Method) async throws -> Data {
+    func post(_ method: Method, configure: ((URLSessionConfiguration) -> Void)? = nil) async throws -> Data {
         #if AGENTNOTCH_DEMO
         throw UsageProviderError.unavailable("Antigravity networking is disabled in demo mode")
         #else
@@ -117,6 +139,7 @@ nonisolated struct AntigravityEndpoint {
         configuration.urlCredentialStorage = nil
         configuration.timeoutIntervalForRequest = 2
         configuration.timeoutIntervalForResource = 4
+        configure?(configuration)
         let session = URLSession(configuration: configuration, delegate: AntigravityLoopbackDelegate(port: port),
                                  delegateQueue: nil)
         defer { session.invalidateAndCancel() }
@@ -126,9 +149,20 @@ nonisolated struct AntigravityEndpoint {
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw UsageProviderError.unavailable("Antigravity usage is unavailable")
+        }
+        guard response.mimeType == "application/json",
+              response.expectedContentLength <= Self.maxResponseBytes else {
+            throw UsageProviderError.badResponse("Invalid Antigravity quota response")
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < Self.maxResponseBytes else {
+                throw UsageProviderError.badResponse("Antigravity quota response is too large")
+            }
+            data.append(byte)
         }
         return data
         #endif
@@ -171,7 +205,7 @@ nonisolated struct AntigravityDiscovery {
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
         )) ?? []
-        return urls.sorted {
+        return urls.filter { $0.lastPathComponent.hasPrefix("hub_") && $0.pathExtension == "json" }.sorted {
             let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return left > right
@@ -207,12 +241,23 @@ nonisolated struct AntigravityDiscovery {
     }
 
     func hub() -> AntigravityEndpoint? {
+        let deadline = ContinuousClock.now + .seconds(3)
+        var rejected = Set<Int32>()
+        var portsByProcess: [Int32: Set<Int>] = [:]
         for file in files(directory) where file.lastPathComponent.hasPrefix("hub_") && file.pathExtension == "json" {
+            guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
             guard let data = read(file), let hub = try? JSONDecoder().decode(Hub.self, from: data),
-                  hub.pid > 0, alive(hub.pid), (1...65535).contains(hub.httpPort),
-                  Self.validToken(hub.csrfToken),
-                  ownsLanguageServer(hub.pid),
-                  listeningPorts(hub.pid).contains(hub.httpPort) else { continue }
+                  hub.pid > 0, (1...65535).contains(hub.httpPort), Self.validToken(hub.csrfToken),
+                  !rejected.contains(hub.pid) else { continue }
+            if portsByProcess[hub.pid] == nil {
+                guard alive(hub.pid), ownsLanguageServer(hub.pid) else {
+                    rejected.insert(hub.pid)
+                    continue
+                }
+                guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+                portsByProcess[hub.pid] = listeningPorts(hub.pid)
+            }
+            guard portsByProcess[hub.pid]?.contains(hub.httpPort) == true else { continue }
             return AntigravityEndpoint(port: hub.httpPort, token: hub.csrfToken)
         }
         return nil
@@ -221,12 +266,19 @@ nonisolated struct AntigravityDiscovery {
     /// Lists short executable paths first, then reads full argv only for Antigravity's own language servers,
     /// so a Mac full of long command lines cannot push the listing past the output cap.
     func processEndpoints() -> [AntigravityEndpoint] {
-        run("/bin/ps", ["-x", "-o", "pid=,comm="]).split(separator: "\n").flatMap { line -> [AntigravityEndpoint] in
+        guard !Task.isCancelled else { return [] }
+        let deadline = ContinuousClock.now + .seconds(3)
+        var seen = Set<Int32>()
+        return run("/bin/ps", ["-x", "-ww", "-o", "pid=,comm="]).split(separator: "\n").flatMap { line -> [AntigravityEndpoint] in
+            guard !Task.isCancelled, ContinuousClock.now < deadline else { return [] }
             let fields = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
             guard fields.count == 2, let pid = Int32(fields[0]), pid > 0,
-                  fields[1].hasPrefix(Self.appContents), alive(pid),
+                  fields[1].hasPrefix(Self.appContents),
+                  fields[1].split(separator: "/").last?.hasPrefix("language_server") == true,
+                  seen.insert(pid).inserted, alive(pid),
                   let command = languageServerCommand(pid),
-                  let process = Self.parseCommand(command) else { return [] }
+                  let process = Self.parseCommand(command), !Task.isCancelled,
+                  ContinuousClock.now < deadline else { return [] }
             return listeningPorts(pid).sorted().map { port in
                 let token = port == process.extensionPort ? process.extensionToken ?? process.token : process.token
                 return AntigravityEndpoint(port: port, token: token)
@@ -265,8 +317,8 @@ nonisolated struct AntigravityDiscovery {
     }
 
     private static func isLanguageServer(_ command: String) -> Bool {
-        guard let executable = command.split(whereSeparator: \.isWhitespace).first,
-              executable.hasPrefix(appContents),
+        let executable = executablePath(command)
+        guard executable.hasPrefix(appContents),
               !executable.split(separator: "/").contains("..") else { return false }
         let root = URL(fileURLWithPath: "/Applications/Antigravity.app/Contents", isDirectory: true)
             .resolvingSymlinksInPath().path
@@ -274,11 +326,18 @@ nonisolated struct AntigravityDiscovery {
         return resolved.path.hasPrefix(root + "/") && resolved.lastPathComponent.hasPrefix("language_server")
     }
 
+    private static func executablePath(_ command: String) -> Substring {
+        let command = command.drop(while: \.isWhitespace)
+        let end = command.range(of: #"\s+--"#, options: .regularExpression)?.lowerBound ?? command.endIndex
+        return command[..<end]
+    }
+
     static func parseCommand(_ command: String) -> (token: String, extensionPort: Int?, extensionToken: String?)? {
         guard isLanguageServer(command) else { return nil }
-        let args = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        let args = command.drop(while: \.isWhitespace).dropFirst(executablePath(command).count)
+            .split(whereSeparator: \.isWhitespace).map(String.init)
         func value(_ flag: String) -> String? {
-            for (index, arg) in args.enumerated().dropFirst() {
+            for (index, arg) in args.enumerated() {
                 if arg == flag, index + 1 < args.count { return args[index + 1] }
                 if arg.hasPrefix(flag + "=") { return String(arg.dropFirst(flag.count + 1)) }
             }
@@ -291,7 +350,7 @@ nonisolated struct AntigravityDiscovery {
     }
 
     private static func validToken(_ token: String) -> Bool {
-        !token.isEmpty && !token.hasPrefix("--") && token.utf8.allSatisfy { (33...126).contains($0) }
+        !token.isEmpty && token.utf8.count <= 4096 && !token.hasPrefix("--") && token.utf8.allSatisfy { (33...126).contains($0) }
     }
 }
 
@@ -323,9 +382,12 @@ nonisolated enum AntigravityQuota {
             }
         }
         let tier = status["userTier"] as? [String: Any]
-        return ProviderSnapshot(id: .antigravity, account: (status["email"] ?? status["userEmail"]) as? String,
+        let email = (status["email"] ?? status["userEmail"]) as? String
+        let binding = email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ProviderSnapshot(id: .antigravity, account: email,
                                 plan: (tier?["description"] ?? tier?["name"] ?? status["planName"]) as? String,
-                                windows: windows, fetchedAt: now)
+                                windows: windows, fetchedAt: now,
+                                accountBinding: binding.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     private static func groupReadings(_ response: [String: Any]) -> [Reading] {
