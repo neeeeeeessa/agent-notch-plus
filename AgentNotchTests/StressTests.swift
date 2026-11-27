@@ -485,7 +485,7 @@ extension StressTests {
         let calls = Mutex<[String]>([])
         let provider = AntigravityProvider(discovery: discovery) { endpoint, method in
             calls.withLock { $0.append("\(endpoint.port):\(endpoint.plainHTTP):\(endpoint.token):\(method)") }
-            guard endpoint.port == 4300 else { throw URLError(.networkConnectionLost) }
+            guard endpoint.port == 4300 else { throw URLError(.secureConnectionFailed) }
             if method == .summary { return Self.grouped }
             throw URLError(.networkConnectionLost)
         }
@@ -563,18 +563,24 @@ extension StressTests {
             let endpoint = AntigravityEndpoint(port: port, token: "synthetic", plainHTTP: true)
             _ = try AntigravityQuota.parse(await endpoint.post(.summary), grouped: true)
             Issue.record("Signed-out response was accepted")
-        } catch UsageProviderError.needsAuth(let message) {
+        } catch UsageProviderError.authenticationRejected(let message) {
             #expect(message == ProviderID.antigravity.signInHint)
         }
     }
 
-    @Test @MainActor func summaryEnrichmentHandlesAccountSwitchAndClearsSignedOutReadings() async throws {
+    @Test @MainActor func summaryEnrichmentHandlesAccountSwitchAndPreservesSavedReadings() async throws {
         let state = Mutex(0)
-        let discovery = hubDiscovery([#"{"pid":42,"httpsPort":4100,"httpPort":4200,"csrfToken":"synthetic"}"#])
+        var discovery = hubDiscovery([#"{"pid":42,"httpsPort":4100,"httpPort":4200,"csrfToken":"synthetic"}"#])
+        let run = discovery.run
+        discovery.run = { tool, args in
+            if tool == "/bin/ps", !args.contains("-p") { return "" }
+            return run(tool, args)
+        }
         let provider = AntigravityProvider(discovery: discovery) { endpoint, method in
             #expect(!endpoint.plainHTTP && endpoint.port == 4100)
             let mode = state.withLock { $0 }
             if method == .summary {
+                if mode == 4 { return Data(#"{"code":"unauthenticated"}"#.utf8) }
                 if mode == 2 { return Self.grouped }
                 return Data(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"5h","remainingFraction":0.5}]}]}"#.utf8)
             }
@@ -601,8 +607,13 @@ extension StressTests {
         #expect(store.limitEventRevision == 0)
         state.withLock { $0 = 3 }
         await refresh()
+        #expect(store.status(for: .antigravity).snapshot?.headline?.usedFraction == 0.5)
+        #expect(store.status(for: .antigravity).snapshot?.accountBinding == nil)
+        let saved = try #require(defaults.data(forKey: UsageStore.savedReadingsKey))
+        state.withLock { $0 = 4 }
+        await refresh()
         #expect(store.status(for: .antigravity) == .needsAuth(ProviderID.antigravity.signInHint))
-        #expect(defaults.data(forKey: UsageStore.savedReadingsKey) == Data("{}".utf8))
+        #expect(defaults.data(forKey: UsageStore.savedReadingsKey) == saved)
     }
 
     @Test func missingExhaustedAntigravityWindowDoesNotTriggerReset() throws {
@@ -641,6 +652,10 @@ extension StressTests {
         NotchViewModel(preferences: preferences, store: store).cellClicked(.antigravity)
         await store.refreshTask(for: .antigravity)?.value
         #expect(scans.withLock { $0 } == 3)
+        store.setEnabledProviders([])
+        store.setEnabledProviders([.antigravity])
+        await store.refreshTask(for: .antigravity)?.value
+        #expect(scans.withLock { $0 } == 4)
     }
 }
 
@@ -667,5 +682,75 @@ extension StressTests {
         }
         await #expect(throws: UsageProviderError.self) { try await provider.fetch() }
         #expect(try await provider.fetch().headline?.id == "3p-session")
+    }
+}
+
+extension StressTests {
+    @Test(arguments: [URLError.Code.timedOut, .networkConnectionLost])
+    func slowVerifiedHTTPSDoesNotDowngrade(_ code: URLError.Code) async {
+        var discovery = hubDiscovery([#"{"pid":42,"httpsPort":4100,"httpPort":4200,"csrfToken":"synthetic"}"#])
+        let run = discovery.run
+        discovery.run = { tool, args in
+            if tool.contains("lsof") { return "n127.0.0.1:4100\nn127.0.0.1:4200" }
+            return run(tool, args)
+        }
+        let routes = Mutex<[Int]>([])
+        let provider = AntigravityProvider(discovery: discovery) { endpoint, _ in
+            #expect(!endpoint.plainHTTP)
+            routes.withLock { $0.append(endpoint.port) }
+            // The process scan also sees the known HTTP port.
+            throw URLError(endpoint.port == 4200 ? .secureConnectionFailed : code)
+        }
+        await #expect(throws: UsageProviderError.self) { try await provider.fetch() }
+        #expect(routes.withLock { $0 } == [4100, 4200])
+    }
+
+    @Test func authRejectionTriesOlderHubAndProcessTokenOnSamePort() async throws {
+        let discovery = hubDiscovery([
+            #"{"pid":42,"httpsPort":4100,"csrfToken":"stale"}"#,
+            #"{"pid":42,"httpsPort":4200,"csrfToken":"older"}"#,
+        ])
+        for successfulToken in ["older", "synthetic"] {
+            let seen = Mutex<[String]>([])
+            let provider = AntigravityProvider(discovery: discovery) { endpoint, _ in
+                seen.withLock { $0.append(endpoint.token) }
+                guard endpoint.port == (successfulToken == "older" ? 4200 : 4100),
+                      endpoint.token == successfulToken else {
+                    throw UsageProviderError.authenticationRejected(ProviderID.antigravity.signInHint)
+                }
+                return Self.grouped
+            }
+            #expect(try await provider.fetch().headline?.id == "3p-session")
+            let expected = successfulToken == "older" ? ["stale", "older", "older"] : ["stale", "older", "synthetic", "synthetic"]
+            #expect(seen.withLock { $0 } == expected)
+        }
+    }
+
+    @Test @MainActor func unidentifiedAntigravityReadingsNeverEmitTransitions() async throws {
+        let index = Mutex(0)
+        let discovery = hubDiscovery([#"{"pid":42,"httpsPort":4100,"csrfToken":"synthetic"}"#])
+        let provider = AntigravityProvider(discovery: discovery) { _, method in
+            let i = index.withLock { $0 }
+            if method == .status {
+                if [0, 3, 4].contains(i) {
+                    return Data(#"{"userStatus":{"email":"account@example.invalid"}}"#.utf8)
+                }
+                return Data("{}".utf8)
+            }
+            if i == 1 || i == 3 { return Self.grouped }
+            return Data(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"5h","remainingFraction":0.5}]}]}"#.utf8)
+        }
+        let domain = "StressTests.accountGaps.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = UsageStore(providers: [provider], defaults: defaults)
+        // A → nil → nil → A skips events. The final A → A reset proves detection still works.
+        for i in 0..<5 {
+            index.withLock { $0 = i }
+            store.refresh(.antigravity)
+            await store.refreshTask(for: .antigravity)?.value
+            #expect(store.limitEventRevision == (i == 4 ? 1 : 0))
+        }
+        #expect(store.latestLimitEvents.first?.kind == .reset)
     }
 }

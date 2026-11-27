@@ -32,28 +32,37 @@ nonisolated struct AntigravityProvider: UsageProvider {
         if !hubs.isEmpty { resetDiscoveryBackoff() }
         var attempted = Set<AntigravityEndpoint>()
         var failure: UsageProviderError?
+        var authenticationFailure: UsageProviderError?
 
-        func attempt(_ endpoint: AntigravityEndpoint) async throws -> (ProviderSnapshot?, canDowngrade: Bool) {
+        func attempt(_ endpoint: AntigravityEndpoint, verifiedTLS: Bool = false) async throws -> (ProviderSnapshot?, canDowngrade: Bool) {
             try Task.checkCancellation()
             guard attempted.insert(endpoint).inserted else { return (nil, false) }
             do {
                 return (try await read(endpoint), false)
             } catch let error as URLError {
                 try Task.checkCancellation()
-                return (nil, Self.permitsHTTPFallback(error.code))
+                return (nil, Self.permitsHTTPFallback(error.code, verifiedTLS: verifiedTLS))
             } catch let error as UsageProviderError {
-                if case .needsAuth = error { throw error }
-                failure = failure ?? error
+                if case .authenticationRejected = error {
+                    authenticationFailure = authenticationFailure ?? error
+                } else {
+                    failure = failure ?? error
+                }
                 return (nil, false)
             }
         }
 
         // A hub knows the separate HTTPS and HTTP ports. Never probe a known HTTP port over TLS.
+        let verifiedTLSPorts = Set(hubs.compactMap { $0.https?.port })
+        var blockedPlainPorts = Set<Int>()
         for hub in hubs {
             if let https = hub.https {
-                let (snapshot, canDowngrade) = try await attempt(https)
+                let (snapshot, canDowngrade) = try await attempt(https, verifiedTLS: true)
                 if let snapshot { return snapshot }
-                if !canDowngrade { continue }
+                if !canDowngrade {
+                    if let port = hub.http?.port { blockedPlainPorts.insert(port) }
+                    continue
+                }
             }
             if let http = hub.http, let snapshot = try await attempt(http).0 { return snapshot }
         }
@@ -65,11 +74,9 @@ nonisolated struct AntigravityProvider: UsageProvider {
             if candidates.isEmpty { discoveryCache.lastMiss.withLock { $0 = now() } }
             var fallbacks: [AntigravityEndpoint] = []
             for candidate in candidates {
-                // A verified hub already described this HTTP endpoint's transport.
-                guard !hubs.contains(where: { $0.http?.port == candidate.port || $0.https?.port == candidate.port }) else { continue }
-                let (snapshot, canDowngrade) = try await attempt(candidate)
+                let (snapshot, canDowngrade) = try await attempt(candidate, verifiedTLS: verifiedTLSPorts.contains(candidate.port))
                 if let snapshot { return snapshot }
-                if canDowngrade {
+                if canDowngrade, !verifiedTLSPorts.contains(candidate.port), !blockedPlainPorts.contains(candidate.port) {
                     fallbacks.append(AntigravityEndpoint(port: candidate.port, token: candidate.token, plainHTTP: true))
                 }
             }
@@ -78,7 +85,7 @@ nonisolated struct AntigravityProvider: UsageProvider {
             }
         }
         try Task.checkCancellation()
-        throw failure ?? UsageProviderError.needsAuth("Open Antigravity to update your usage")
+        throw authenticationFailure ?? failure ?? UsageProviderError.needsAuth("Open Antigravity to update your usage")
     }
 
     private func read(_ endpoint: AntigravityEndpoint) async throws -> ProviderSnapshot {
@@ -86,7 +93,7 @@ nonisolated struct AntigravityProvider: UsageProvider {
         do {
             summary = try AntigravityQuota.parse(await transport(endpoint, .summary), grouped: true)
         } catch let error as UsageProviderError {
-            if case .needsAuth = error { throw error }
+            if case .authenticationRejected = error { throw error }
             do {
                 return try AntigravityQuota.parse(await transport(endpoint, .status), grouped: false)
             } catch is URLError {
@@ -103,16 +110,22 @@ nonisolated struct AntigravityProvider: UsageProvider {
             enriched.plan = identity.plan ?? summary.plan
             enriched.accountBinding = identity.binding ?? summary.accountBinding
         } catch let error as UsageProviderError {
-            if case .needsAuth = error { throw error }
+            if case .authenticationRejected = error {
+                enriched.account = nil
+                enriched.plan = nil
+                enriched.accountBinding = nil
+            }
         } catch {
             try Task.checkCancellation()
         }
         return enriched
     }
 
-    private static func permitsHTTPFallback(_ code: URLError.Code) -> Bool {
+    private static func permitsHTTPFallback(_ code: URLError.Code, verifiedTLS: Bool) -> Bool {
         switch code {
-        case .cannotConnectToHost, .networkConnectionLost, .timedOut, .cannotParseResponse,
+        case .cannotConnectToHost, .networkConnectionLost, .timedOut:
+            !verifiedTLS
+        case .cannotParseResponse,
              .badServerResponse, .secureConnectionFailed, .serverCertificateHasBadDate,
              .serverCertificateUntrusted, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid:
             true
@@ -174,7 +187,7 @@ nonisolated struct AntigravityEndpoint: Hashable {
             throw UsageProviderError.badResponse("Invalid Antigravity quota response")
         }
         if response.statusCode == 401 || response.statusCode == 403 {
-            throw UsageProviderError.needsAuth(ProviderID.antigravity.signInHint)
+            throw UsageProviderError.authenticationRejected(ProviderID.antigravity.signInHint)
         }
         guard response.mimeType == "application/json",
               response.expectedContentLength <= Self.maxResponseBytes else {
@@ -189,7 +202,7 @@ nonisolated struct AntigravityEndpoint: Hashable {
         }
         if response.statusCode != 200, let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
            AntigravityQuota.isAuthError(root) {
-            throw UsageProviderError.needsAuth(ProviderID.antigravity.signInHint)
+            throw UsageProviderError.authenticationRejected(ProviderID.antigravity.signInHint)
         }
         guard response.statusCode == 200 else {
             throw UsageProviderError.unavailable("Antigravity usage is unavailable")
@@ -460,7 +473,7 @@ nonisolated enum AntigravityQuota {
         }
         let response = root["response"] as? [String: Any] ?? root
         if isAuthError(root) || isAuthError(response) {
-            throw UsageProviderError.needsAuth(ProviderID.antigravity.signInHint)
+            throw UsageProviderError.authenticationRejected(ProviderID.antigravity.signInHint)
         }
         return (response, response["userStatus"] as? [String: Any] ?? response)
     }

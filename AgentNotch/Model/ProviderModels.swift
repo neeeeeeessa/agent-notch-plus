@@ -255,6 +255,8 @@ nonisolated enum ProviderStatus: Sendable, Equatable {
 nonisolated enum UsageProviderError: Error, Sendable {
     /// The tool that owns the account is signed out, or the credential is unusable.
     case needsAuth(String)
+    /// An endpoint rejected authentication. Show the sign-in prompt over any saved reading.
+    case authenticationRejected(String)
     /// Nothing to read yet, e.g. Codex has not written a rate limit snapshot.
     case unavailable(String)
     /// The endpoint answered with something unexpected.
@@ -264,7 +266,7 @@ nonisolated enum UsageProviderError: Error, Sendable {
 
     var message: String {
         switch self {
-        case .needsAuth(let message), .unavailable(let message), .badResponse(let message):
+        case .needsAuth(let message), .authenticationRejected(let message), .unavailable(let message), .badResponse(let message):
             message
         case .rateLimited:
             "Usage is rate limited; retrying shortly"
