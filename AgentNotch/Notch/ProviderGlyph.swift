@@ -11,7 +11,7 @@ struct ProviderGlyph: View {
         case .grokBuild: GrokMark()
         case .antigravity:
             ZStack {
-                Ellipse().strokeBorder(lineWidth: 1.4).rotationEffect(.degrees(-35))
+                Ellipse().strokeBorder(lineWidth: 1.4).scaleEffect(x: 1, y: 0.53).rotationEffect(.degrees(-40))
                 Image(systemName: "arrow.up").resizable().scaledToFit().padding(4)
             }
         }
