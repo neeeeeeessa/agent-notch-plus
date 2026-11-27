@@ -41,7 +41,6 @@ struct AntigravityTests {
             if endpoint.port == 1234 { throw UsageProviderError.unavailable("HTTP error") }
             if !endpoint.plainHTTP { throw URLError(.secureConnectionFailed) }
             switch method {
-            case .probe: return Data()
             case .summary: throw UsageProviderError.unavailable("Missing summary")
             case .status:
                 return Data(#"{"userStatus":{"cascadeModelConfigData":{"clientModelConfigs":[{"label":"Gemini","quotaInfo":{"remainingFraction":0.5}}]}}}"#.utf8)
@@ -49,7 +48,8 @@ struct AntigravityTests {
         }
         #expect(try await provider.fetch().headline?.usedFraction == 0.5)
         #expect(await calls.all() == [
-            "1234:false:GetUnleashData", "4321:false:GetUnleashData", "4321:true:GetUnleashData",
+            "1234:false:RetrieveUserQuotaSummary", "1234:false:GetUserStatus",
+            "4321:false:RetrieveUserQuotaSummary",
             "4321:true:RetrieveUserQuotaSummary", "4321:true:GetUserStatus",
         ])
     }
@@ -61,7 +61,41 @@ struct AntigravityTests {
             return Data(#"{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"weekly","remainingFraction":0.5}]}]}"#.utf8)
         }
         #expect(try await provider.fetch().headline?.label == "Gemini weekly")
-        #expect(await calls.all() == ["1234:false:GetUnleashData", "1234:false:RetrieveUserQuotaSummary"])
+        #expect(await calls.all() == ["1234:false:RetrieveUserQuotaSummary"])
+    }
+
+    /// Antigravity 2.35.2 has no GetUnleashData; a server that only 404s it must still be read.
+    @Test func serverWithoutProbeMethodIsStillRead() async throws {
+        let provider = AntigravityProvider(discovery: discoveryFixture()) { endpoint, method in
+            guard endpoint.port == 1234, !endpoint.plainHTTP, method == .summary else {
+                throw UsageProviderError.unavailable("HTTP 404")
+            }
+            return Data(Self.liveSummary.utf8)
+        }
+        let snapshot = try await provider.fetch()
+        #expect(snapshot.headline?.label == "Gemini session")
+    }
+
+    /// Reply captured from Antigravity 2.35.2's local server (Pro plan), unchanged apart from layout.
+    private static let liveSummary = """
+    {"response":{"groups":[
+      {"displayName":"Gemini Models","description":"Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Neon), Orchestrator (Carbon), Orchestrator (Argon), Gemini 3.8 Flash","buckets":[
+        {"bucketId":"gemini-weekly","displayName":"Weekly Limit Remaining","description":"You have used some of your weekly limit, it will fully refresh in 5 days, 20 hours.","window":"weekly","remainingFraction":0.66096336,"resetTime":"2026-12-03T10:22:49Z"},
+        {"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","description":"You have used some of your 5-hour limit, it will fully refresh in 34 minutes.","window":"5h","remainingFraction":0.1785842,"resetTime":"2026-11-27T14:12:16Z"}]},
+      {"displayName":"Claude and GPT models","description":"Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B","buckets":[
+        {"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":1},
+        {"bucketId":"3p-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":1}]}],
+    "description":"Within each group, models share a weekly limit and a 5-hour limit."}}
+    """
+
+    @Test func liveSummaryMapsToFourWindowsInRingOrder() throws {
+        let snapshot = try AntigravityQuota.parse(Data(Self.liveSummary.utf8), grouped: true)
+        #expect(snapshot.windows.map(\.label) == [
+            "Gemini session", "Gemini weekly", "Claude + GPT session", "Claude + GPT weekly",
+        ])
+        #expect(abs((snapshot.headline?.usedFraction ?? 0) - (1 - 0.1785842)) < 0.000001)
+        #expect(snapshot.headline?.resetsAt == ISO8601DateFormatter().date(from: "2026-11-27T14:12:16Z"))
+        #expect(snapshot.windows.last?.usedFraction == 0)
     }
 
     @Test func listenerFilteringAndExecutableTraversal() {

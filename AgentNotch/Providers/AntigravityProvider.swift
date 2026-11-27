@@ -14,52 +14,57 @@ nonisolated struct AntigravityProvider: UsageProvider {
     func fetch() async throws -> ProviderSnapshot {
         let hub = discovery.hub()
         try Task.checkCancellation()
-        var server: AntigravityEndpoint?
-        if let hub { server = try await probe(hub) }
-        if server == nil {
-            for candidate in discovery.processEndpoints() {
-                try Task.checkCancellation()
-                if let reachable = try await probe(candidate) {
-                    server = reachable
-                    break
-                }
+        var answeredWithout: UsageProviderError?
+        if let hub {
+            do {
+                if let snapshot = try await read(hub) { return snapshot }
+            } catch let error as UsageProviderError {
+                answeredWithout = error
             }
         }
-        try Task.checkCancellation()
-        guard let server else {
-            throw UsageProviderError.needsAuth("Open Antigravity to update your usage")
-        }
-        if let data = try? await transport(server, .summary),
-           let snapshot = try? AntigravityQuota.parse(data, grouped: true) {
-            return snapshot
-        }
-        try Task.checkCancellation()
-        do {
-            let data = try await transport(server, .status)
-            return try AntigravityQuota.parse(data, grouped: false)
-        } catch let error as URLError {
+        for candidate in discovery.processEndpoints() {
             try Task.checkCancellation()
-            switch error.code {
-            case .cannotConnectToHost, .networkConnectionLost, .timedOut:
-                throw UsageProviderError.needsAuth("Open Antigravity to update your usage")
-            default:
-                throw UsageProviderError.unavailable("Antigravity usage is unavailable")
+            do {
+                if let snapshot = try await read(candidate) { return snapshot }
+            } catch let error as UsageProviderError {
+                answeredWithout = answeredWithout ?? error
             }
         }
+        try Task.checkCancellation()
+        throw answeredWithout ?? UsageProviderError.needsAuth("Open Antigravity to update your usage")
     }
 
-    private func probe(_ candidate: AntigravityEndpoint) async throws -> AntigravityEndpoint? {
-        try Task.checkCancellation()
-        do {
-            _ = try await transport(candidate, .probe)
-            return candidate
-        } catch let error as URLError where Self.permitsHTTPFallback(error.code) {
-            try Task.checkCancellation()
-            var fallback = candidate
-            fallback.plainHTTP = true
-            if (try? await transport(fallback, .probe)) != nil { return fallback }
-        } catch {
-            try Task.checkCancellation()
+    /// Asks one candidate for quota: the grouped summary first, then per-model status.
+    /// HTTPS first; plain HTTP on the same loopback port only after a TLS or transport failure.
+    /// Returns nil when nothing answered there, and throws when the server answered without usable quota.
+    private func read(_ candidate: AntigravityEndpoint) async throws -> ProviderSnapshot? {
+        for plainHTTP in [false, true] {
+            var endpoint = candidate
+            endpoint.plainHTTP = plainHTTP
+            var answered = false
+            var failure: UsageProviderError?
+            methods: for (method, grouped) in [(AntigravityEndpoint.Method.summary, true), (.status, false)] {
+                try Task.checkCancellation()
+                do {
+                    let data = try await transport(endpoint, method)
+                    answered = true
+                    do {
+                        return try AntigravityQuota.parse(data, grouped: grouped)
+                    } catch let error as UsageProviderError {
+                        failure = error
+                    }
+                } catch let error as URLError {
+                    if !answered, !Self.permitsHTTPFallback(error.code) { return nil }
+                    break methods
+                } catch let error as UsageProviderError {
+                    answered = true
+                    failure = failure ?? error
+                }
+            }
+            if answered {
+                if let failure { throw failure }
+                return nil
+            }
         }
         return nil
     }
@@ -79,7 +84,6 @@ nonisolated struct AntigravityProvider: UsageProvider {
 
 nonisolated struct AntigravityEndpoint {
     enum Method: String, CaseIterable {
-        case probe = "GetUnleashData"
         case summary = "RetrieveUserQuotaSummary"
         case status = "GetUserStatus"
     }
