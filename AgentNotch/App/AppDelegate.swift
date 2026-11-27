@@ -33,6 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recorder: NotchRecorder?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // Hosted offscreen tests need AppKit, but never need the notch window or live startup.
+        if ProcessInfo.processInfo.environment["AGENTNOTCH_HEADLESS_TEST_HOST"] == "1" { return }
+        #endif
+
         let preferences = Preferences()
         let codexAuthPath = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".codex/auth.json").path
@@ -120,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Reopening from Finder or the Dock brings settings back, which matters when nothing else is on screen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        settings.show()
+        settings?.show()
         return false
     }
 
@@ -356,12 +361,16 @@ internal nonisolated struct DemoUsageProvider: UsageProvider {
             )
         case .antigravity:
             return ProviderSnapshot(
-                id: id, account: "Sample data", plan: nil,
+                id: id, account: "Sample data", plan: "AI Pro",
                 windows: [
                     LimitWindow(id: "gemini-session", label: "Gemini session", usedFraction: 0.35,
                                 resetsAt: now.addingTimeInterval(7200)),
                     LimitWindow(id: "gemini-weekly", label: "Gemini weekly", usedFraction: 0.2,
                                 resetsAt: now.addingTimeInterval(259200)),
+                    LimitWindow(id: "3p-session", label: "Claude + GPT session", usedFraction: 0.48,
+                                resetsAt: now.addingTimeInterval(10800)),
+                    LimitWindow(id: "3p-weekly", label: "Claude + GPT weekly", usedFraction: 0.27,
+                                resetsAt: now.addingTimeInterval(345600)),
                 ],
                 fetchedAt: now
             )

@@ -3,6 +3,13 @@ import SwiftUI
 /// Everything drawn inside the transparent notch panel.
 struct NotchRootView: View {
     @Bindable var model: NotchViewModel
+    // ImageRenderer lays out each frame independently, so the offscreen capture supplies
+    // the same transition properties at the current point in the timeline.
+    var recordedExpansion: CGFloat? = nil
+    var recordedTooltip: CGFloat? = nil
+    var recordedViewport: ClosedRange<CGFloat>? = nil
+
+    private var expansion: CGFloat { recordedExpansion ?? (model.isExpanded ? 1 : 0) }
 
     var body: some View {
         let layout = model.layout
@@ -25,8 +32,22 @@ struct NotchRootView: View {
     }
 
     private func notchBody(_ layout: NotchLayout) -> some View {
-        let rect = layout.shapeRect
-        return SideNotchShape(edge: layout.edge, cornerRadius: layout.cornerRadius, earRadius: layout.earRadius)
+        var rect = layout.shapeRect
+        var corner = layout.cornerRadius
+        var ear = layout.earRadius
+        if let progress = recordedExpansion {
+            let closed = NotchLayout(edge: layout.edge, cells: layout.cells, isExpanded: false, tooltipHeight: 0)
+            let start = closed.shapeRect
+            let end = NotchLayout(edge: layout.edge, cells: layout.cells, isExpanded: true, tooltipHeight: 0)
+            func interpolate(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * progress }
+            rect = CGRect(x: interpolate(start.minX, end.shapeRect.minX),
+                          y: interpolate(start.minY, end.shapeRect.minY),
+                          width: interpolate(start.width, end.shapeRect.width),
+                          height: interpolate(start.height, end.shapeRect.height))
+            corner = interpolate(closed.cornerRadius, end.cornerRadius)
+            ear = interpolate(closed.earRadius, end.earRadius)
+        }
+        return SideNotchShape(edge: layout.edge, cornerRadius: corner, earRadius: ear)
             .fill(.black)
             .frame(width: rect.width, height: rect.height)
             .position(x: rect.midX, y: rect.midY)
@@ -61,8 +82,8 @@ struct NotchRootView: View {
             .contentShape(Rectangle())
             .onTapGesture { model.cellClicked(id) }
             .position(x: rect.midX, y: rect.midY)
-            .opacity(model.isExpanded ? 1 : 0)
-            .scaleEffect(model.isExpanded ? 1 : 0.6, anchor: layout.edge.anchorAtEdge)
+            .opacity(expansion)
+            .scaleEffect(0.6 + 0.4 * expansion, anchor: layout.edge.anchorAtEdge)
         }
     }
 
@@ -71,7 +92,7 @@ struct NotchRootView: View {
             edge: layout.edge, isHovered: model.isOrbHovered, arcCenter: layout.arcCenter, orbRect: layout.orbRect
         )
         .onTapGesture { model.orbClicked() }
-        .opacity(model.isExpanded ? 1 : 0)
+        .opacity(expansion)
     }
 
     /// Collapsed: Peek looks out of the pill. Fades with the pill as the body opens.
@@ -81,7 +102,7 @@ struct NotchRootView: View {
             .frame(width: rect.width, height: rect.height)
             .clipShape(RoundedRectangle(cornerRadius: NotchMetrics.pillCornerRadius))
             .position(x: rect.midX, y: rect.midY)
-            .opacity(model.isExpanded ? 0 : 1)
+            .opacity(1 - expansion)
             .allowsHitTesting(false)
     }
 
@@ -96,20 +117,28 @@ struct NotchRootView: View {
             .contentShape(Circle().inset(by: (side - rect.width) / 2 - 2))
             .onTapGesture { model.headClicked() }
             .position(x: rect.midX, y: rect.midY)
-            .scaleEffect(model.isExpanded ? 1 : 0.3, anchor: layout.edge.anchorAtEdge)
-            .opacity(model.isExpanded ? 1 : 0)
+            .scaleEffect(0.3 + 0.7 * expansion, anchor: layout.edge.anchorAtEdge)
+            .opacity(expansion)
             .allowsHitTesting(model.isExpanded)
+    }
+
+    private func tooltipRect(_ layout: NotchLayout, index: Int) -> CGRect {
+        var rect = layout.tooltipRect(for: index)
+        if let viewport = recordedViewport {
+            rect.origin.y = min(max(rect.minY, viewport.lowerBound), viewport.upperBound - rect.height)
+        }
+        return rect
     }
 
     @ViewBuilder
     private func tooltip(_ layout: NotchLayout) -> some View {
         if model.isExpanded, let id = model.hoveredProvider, let index = model.hoveredIndex {
-            let rect = layout.tooltipRect(for: index)
+            let rect = tooltipRect(layout, index: index)
             TooltipCard(
                 id: id,
                 status: model.status(for: id),
                 direction: layout.tooltipDirection,
-                tailCenter: layout.tooltipTailCenter(for: index),
+                tailCenter: layout.isStacked ? layout.ringCenter(index).y - rect.minY : layout.tooltipTailCenter(for: index),
                 awaitingOwnerTool: model.isAwaitingOwnerTool(id)
             )
             .frame(width: rect.width)
@@ -118,6 +147,8 @@ struct NotchRootView: View {
             } action: { height in
                 model.tooltipHeight = height
             }
+            .scaleEffect(0.86 + 0.14 * (recordedTooltip ?? 1), anchor: layout.edge.anchorAtEdge)
+            .opacity(recordedTooltip ?? 1)
             .position(x: rect.midX, y: rect.midY)
             .transition(.scale(scale: 0.86, anchor: layout.edge.anchorAtEdge).combined(with: .opacity))
             .id(id)
