@@ -35,19 +35,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        for id in preferences.visibleProviders {
+        let providers = preferences.visibleProviders
+        for id in providers {
             let entry = NSMenuItem(title: readout(for: id), action: nil, keyEquivalent: "")
             entry.isEnabled = false
             menu.addItem(entry)
         }
-        if !preferences.visibleProviders.isEmpty {
+        if !providers.isEmpty {
             menu.addItem(.separator())
+            menu.addItem(
+                withTitle: store.isRefreshing ? "Refreshing…" : "Refresh Now",
+                action: #selector(refresh), keyEquivalent: "r"
+            ).target = self
         }
-        menu.addItem(
-            withTitle: store.isRefreshing ? "Refreshing…" : "Refresh Now",
-            action: #selector(refresh), keyEquivalent: "r"
-        ).target = self
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        menu.addItem(withTitle: providers.isEmpty ? "Choose assistants…" : "Settings…", action: #selector(openSettings), keyEquivalent: ",")
             .target = self
         let updates = menu.addItem(
             withTitle: "Check for Updates…",

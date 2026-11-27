@@ -20,8 +20,8 @@ struct GrokSharedQuotaTests {
 
     // MARK: Provider set
 
-    @Test func exactlyThreeCirclesInApprovedOrder() {
-        #expect(ProviderID.allCases == [.claude, .codex, .grokBuild])
+    @Test func fourCirclesInApprovedOrder() {
+        #expect(ProviderID.allCases == [.claude, .codex, .grokBuild, .antigravity])
         #expect(ProviderID.grokBuild.rawValue == "grokBuild")
         #expect(ProviderID.grokBuild.displayName == "Grok")
     }
@@ -34,7 +34,9 @@ struct GrokSharedQuotaTests {
         defaults.set(["cursor", "grokBot"], forKey: "hiddenProviders")
         let preferences = Preferences(defaults: defaults)
         #expect(preferences.usageAccessProviders == [.claude, .codex, .grokBuild])
+        #if !AGENTNOTCH_DEMO
         #expect(preferences.visibleProviders == [.claude, .codex, .grokBuild])
+        #endif
     }
 
     @Test func cursorEndpointIsNoLongerAllowlisted() {

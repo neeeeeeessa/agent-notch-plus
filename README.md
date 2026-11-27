@@ -1,6 +1,6 @@
 # Agent Notch Plus
 
-Agent Notch Plus puts Claude, Codex, and Grok usage in the Mac notch.
+Agent Notch Plus puts Claude, Codex, Grok, and Antigravity usage in the Mac notch.
 
 <p align="center">
   <img src="docs/hover.gif" alt="Hover the closed notch, then Claude, Codex, and Grok" width="460" />
@@ -14,15 +14,15 @@ The circles sit on the edge of the screen. Hover one for its detail card. Click 
 
 You can put the notch on the right, left, top, or bottom edge. It can stay open, collapse to a pill that opens when you reach it, or stay hidden. The app icon can live in the Dock, in the menu bar, or nowhere.
 
-The app does not create an account. Claude uses the sign-in Claude Code already saved. Codex uses the sign-in Codex already saved. Grok uses the sign-in the Grok CLI already saved.
+The app does not create an account. Claude uses the sign-in Claude Code already saved. Codex uses the sign-in Codex already saved. Grok uses the sign-in the Grok CLI already saved. Antigravity reads usage from the local Antigravity app while it runs.
 
 ## Changes from Agent Notch
 
 Agent Notch's third circle is Cursor, and its rings turn green, yellow, and red as a limit fills. This fork changes that, and a few behaviors around it.
 
-- The circles are Claude, Codex, and Grok. Cursor is a row on the Grok card. That card is one weekly allowance shared by Grok Build, Grok Bot, and Cursor, with the per-product split the server reports.
+- The circles are Claude, Codex, Grok, and Antigravity. Cursor is a row on the Grok card. That card is one weekly allowance shared by Grok Build, Grok Bot, and Cursor, with the per-product split the server reports.
 - Each provider has a fixed color. The color stays put as usage rises.
-- Usage access starts off. You turn it on for each provider. A token goes only to that provider's usage host. The app never refreshes a token itself. When the Grok sign-in expires, it asks the Grok CLI to renew its own sign-in.
+- Usage access starts off. Each assistant switch enables usage access and shows its circle. A token goes only to that provider's usage host. The app never refreshes a token itself. When the Grok sign-in expires, it asks the Grok CLI to renew its own sign-in.
 - After a restart, each circle shows its last reading, dimmed and dated, until a new one arrives. When Claude Code's or Codex's sign-in has expired, the card says the numbers update when you next use that tool.
 - When a usage endpoint rate-limits, the last good reading stays bright through the cooldown.
 - A click refreshes only the circle you hit.
@@ -31,7 +31,7 @@ Agent Notch's third circle is Cursor, and its rings turn green, yellow, and red 
 
 ## Requirements
 
-macOS 26 or later, and Xcode to build. Sign in to Claude Code, Codex, or the Grok CLI before you expect live numbers. Download the latest signed and notarized build from [Releases](https://github.com/neeeeeeessa/agent-notch-plus/releases); it keeps itself up to date.
+macOS 26 or later, and Xcode to build. Sign in to Claude Code, Codex, the Grok CLI, or Antigravity before you expect live numbers. Download the latest signed and notarized build from [Releases](https://github.com/neeeeeeessa/agent-notch-plus/releases); it keeps itself up to date.
 
 ## Build
 
@@ -55,15 +55,14 @@ Xcode prints the path of `Agent Notch Plus.app` near the end of that log.
 
 ## First launch
 
-A new install starts with usage access off. Nothing is read until you turn a switch on.
-
-Hover a circle to see how to turn it on. Clicking a circle that is off opens Settings.
+A new install starts with every assistant switch off. Click **Choose assistants** in the notch to open Settings. Turning on an assistant allows usage reads and shows its circle.
 
 Open Settings from the menu bar icon, or from the Dock icon if you left the app there.
 
 - Claude asks macOS for permission to read the Claude Code keychain item.
 - Codex reads `~/.codex/auth.json` when that file is readable. Otherwise it asks for the Codex Auth keychain item.
 - Grok reads `~/.grok/auth.json`. Sign in with the Grok CLI before you turn that switch on.
+- Antigravity reads usage from the local Antigravity app while it runs. Open Antigravity and sign in for live readings.
 
 ## Releasing
 

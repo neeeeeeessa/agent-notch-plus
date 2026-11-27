@@ -86,7 +86,9 @@ final class Preferences {
         static let notchEdge = "notchEdge"
         static let notchVisibility = "notchVisibility"
         static let appPresence = "appPresence"
+        #if AGENTNOTCH_DEMO
         static let hiddenProviders = "hiddenProviders"
+        #endif
         /// Providers the user explicitly allowed to read an existing sign-in. Never derived from visibility.
         static let usageAccessProviders = "usageAccessProviders"
         static let hasLaunchedBefore = "hasLaunchedBefore"
@@ -108,13 +110,16 @@ final class Preferences {
         didSet { defaults.set(appPresence.rawValue, forKey: Key.appPresence) }
     }
 
+    #if AGENTNOTCH_DEMO
     var hiddenProviders: Set<ProviderID> {
         didSet {
             defaults.set(hiddenProviders.map(\.rawValue).sorted(), forKey: Key.hiddenProviders)
         }
     }
 
-    /// Live usage permission. Empty means no provider may read a sign-in. Independent of `hiddenProviders`.
+    #endif
+
+    /// Live usage permission. Empty means no provider may read a sign-in. Also controls notch visibility in live builds.
     var usageAccessProviders: Set<ProviderID> {
         didSet {
             defaults.set(usageAccessProviders.map(\.rawValue).sorted(), forKey: Key.usageAccessProviders)
@@ -151,26 +156,33 @@ final class Preferences {
 
     let isFirstLaunch: Bool
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, loginItemEnabled: Bool = SMAppService.mainApp.status == .enabled) {
         self.defaults = defaults
         notchEdge = defaults.string(forKey: Key.notchEdge).flatMap(NotchEdge.init) ?? .right
         notchVisibility =
             defaults.string(forKey: Key.notchVisibility).flatMap(NotchVisibility.init)
             ?? .onHover
         appPresence = defaults.string(forKey: Key.appPresence).flatMap(AppPresence.init) ?? .menuBar
+        #if AGENTNOTCH_DEMO
         let hidden = defaults.stringArray(forKey: Key.hiddenProviders) ?? []
         hiddenProviders = Set(hidden.compactMap(ProviderID.init))
+        #endif
         let allowed = defaults.stringArray(forKey: Key.usageAccessProviders) ?? []
         usageAccessProviders = Set(allowed.compactMap(ProviderID.init))
-        opensAtLogin = SMAppService.mainApp.status == .enabled
+        opensAtLogin = loginItemEnabled
         isFirstLaunch = !defaults.bool(forKey: Key.hasLaunchedBefore)
         defaults.set(true, forKey: Key.hasLaunchedBefore)
     }
 
     var visibleProviders: [ProviderID] {
+        #if AGENTNOTCH_DEMO
         ProviderID.allCases.filter { !hiddenProviders.contains($0) }
+        #else
+        ProviderID.allCases.filter { usageAccessProviders.contains($0) }
+        #endif
     }
 
+    #if AGENTNOTCH_DEMO
     func setProvider(_ id: ProviderID, enabled: Bool) {
         if enabled {
             hiddenProviders.remove(id)
@@ -179,7 +191,9 @@ final class Preferences {
         }
     }
 
-    /// Grants or revokes live usage access. Does not change notch visibility.
+    #endif
+
+    /// Grants or revokes live usage access and its notch circle.
     func setUsageAccess(_ id: ProviderID, allowed: Bool) {
         if allowed {
             usageAccessProviders.insert(id)

@@ -734,7 +734,7 @@ nonisolated enum Keychain: Sendable {
             access.sessions.discard(service: ClaudeOAuthStore.claudeCodeService)
         case .codex:
             access.sessions.discard(service: "Codex Auth")
-        case .grokBuild:
+        case .grokBuild, .antigravity:
             break
         }
     }
@@ -746,7 +746,7 @@ nonisolated enum Keychain: Sendable {
             access.sessions.invalidatePending(service: ClaudeOAuthStore.claudeCodeService)
         case .codex:
             access.sessions.invalidatePending(service: "Codex Auth")
-        case .grokBuild:
+        case .grokBuild, .antigravity:
             break
         }
     }

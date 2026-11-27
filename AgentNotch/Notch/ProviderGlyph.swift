@@ -9,6 +9,11 @@ struct ProviderGlyph: View {
         case .claude: ClaudeSparkle()
         case .codex: OpenAIKnot()
         case .grokBuild: GrokMark()
+        case .antigravity:
+            ZStack {
+                Ellipse().strokeBorder(lineWidth: 1.4).rotationEffect(.degrees(-35))
+                Image(systemName: "arrow.up").resizable().scaledToFit().padding(4)
+            }
         }
     }
 }

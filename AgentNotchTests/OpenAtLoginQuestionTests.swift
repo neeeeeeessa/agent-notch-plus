@@ -12,7 +12,7 @@ struct OpenAtLoginQuestionTests {
     }
 
     @Test func newInstallStartsOffAndAsks() {
-        let preferences = Preferences(defaults: isolatedDefaults())
+        let preferences = Preferences(defaults: isolatedDefaults(), loginItemEnabled: false)
         #expect(!preferences.opensAtLogin)
         #expect(preferences.needsOpenAtLoginQuestion)
     }
@@ -20,12 +20,12 @@ struct OpenAtLoginQuestionTests {
     @Test func existingInstallNotYetAskedIsAsked() {
         let defaults = isolatedDefaults()
         defaults.set(true, forKey: "hasLaunchedBefore")
-        #expect(Preferences(defaults: defaults).needsOpenAtLoginQuestion)
+        #expect(Preferences(defaults: defaults, loginItemEnabled: false).needsOpenAtLoginQuestion)
     }
 
     @Test func asksOnlyOnceAcrossLaunches() {
         let defaults = isolatedDefaults()
-        Preferences(defaults: defaults).markOpenAtLoginAsked()
-        #expect(!Preferences(defaults: defaults).needsOpenAtLoginQuestion)
+        Preferences(defaults: defaults, loginItemEnabled: false).markOpenAtLoginAsked()
+        #expect(!Preferences(defaults: defaults, loginItemEnabled: false).needsOpenAtLoginQuestion)
     }
 }

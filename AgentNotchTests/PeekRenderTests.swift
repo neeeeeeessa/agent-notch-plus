@@ -21,6 +21,7 @@ struct PeekRenderTests {
         defaults.set(visibility.rawValue, forKey: "notchVisibility")
         defaults.set(
             ProviderID.allCases.filter { $0 != provider.id }.map(\.rawValue), forKey: "hiddenProviders")
+        defaults.set([provider.id.rawValue], forKey: "usageAccessProviders")
         let store = UsageStore(providers: [provider], defaults: defaults)
         store.refresh(provider.id)
         while store.isRefreshing { await Task.yield() }
