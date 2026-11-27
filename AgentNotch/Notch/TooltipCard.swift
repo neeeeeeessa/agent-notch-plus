@@ -323,17 +323,33 @@ struct LimitWindowRow: View {
         return 0
     }
 
+    private var label: some View {
+        Text(verbatim: window.label)
+            .font(.system(size: 12))
+            .foregroundStyle(.white.opacity(0.85))
+            .lineLimit(1)
+    }
+
+    private var reset: some View {
+        Text(verbatim: resetText)
+            .font(.system(size: 11))
+            .foregroundStyle(.white.opacity(0.5))
+            .lineLimit(1)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: window.label)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.85))
-                Spacer(minLength: 8)
-                Text(verbatim: resetText)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .lineLimit(1)
+            // A long label such as "Claude + GPT session" keeps one line; the reset time moves under it.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    label
+                    Spacer(minLength: 8)
+                    reset
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    label
+                    reset
+                }
             }
             UsageBar(fraction: window.usedFraction, color: color)
             HStack(spacing: 8) {
