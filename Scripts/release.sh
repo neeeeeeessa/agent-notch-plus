@@ -41,6 +41,8 @@ fi
 VERSION="${TAG#v}"
 BUILD="$(date -u +%Y%m%d%H%M)"
 PREFIX="https://github.com/${REPO}/releases/download/${TAG}/"
+# Optional "What's new": shown on the GitHub release and embedded in the Sparkle update window.
+NOTES="$ROOT/docs/releases/${TAG}.md"
 
 [[ -n "$TEAM_ID" ]] || { echo "Set TEAM_ID in .env" >&2; exit 1; }
 
@@ -148,8 +150,15 @@ else
   git -C "$WT" rm -rfq . >/dev/null 2>&1 || true
 fi
 [[ -f "$WT/appcast.xml" ]] && cp "$WT/appcast.xml" "$UPDATES/appcast.xml"
+# Sparkle pairs release notes with the archive by file name.
+NOTES_ARGS=()
+if [[ -f "$NOTES" ]]; then
+  cp "$NOTES" "$UPDATES/AgentNotchPlus.md"
+  NOTES_ARGS=(--embed-release-notes)
+fi
 "$DIST/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast" \
   --account "$SPARKLE_ACCOUNT" \
+  ${NOTES_ARGS[@]+"${NOTES_ARGS[@]}"} \
   --download-url-prefix "$PREFIX" \
   --link "https://github.com/${REPO}" \
   --maximum-deltas 0 \
@@ -162,7 +171,9 @@ git -C "$WT" add appcast.xml .nojekyll
 git -C "$WT" commit -qm "Feed: ${TAG}"
 
 echo "Publishing ${TAG}…"
-gh release create "$TAG" "$ZIP" --repo "$REPO" --target "$published" --title "Agent Notch Plus ${VERSION}" --generate-notes
+RELEASE_NOTES=(--generate-notes)
+[[ -f "$NOTES" ]] && RELEASE_NOTES=(--notes-file "$NOTES" --generate-notes)
+gh release create "$TAG" "$ZIP" --repo "$REPO" --target "$published" --title "Agent Notch Plus ${VERSION}" "${RELEASE_NOTES[@]}"
 git -C "$WT" push -q "$REMOTE_URL" HEAD:gh-pages
 
 echo "Waiting for the live feed…"
