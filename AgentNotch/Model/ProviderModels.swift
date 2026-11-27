@@ -6,6 +6,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
     case claude
     case codex
     case grokBuild
+    case antigravity
 
     var id: String { rawValue }
 
@@ -14,6 +15,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
         case .claude: "Claude"
         case .codex: "Codex"
         case .grokBuild: "Grok"
+        case .antigravity: "Antigravity"
         }
     }
 
@@ -22,6 +24,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
         switch self {
         case .claude: URL(string: "https://claude.ai/settings/usage")!
         case .codex: URL(string: "https://chatgpt.com/#settings/Account")!
+        case .antigravity: URL(string: "https://antigravity.google")!
         case .grokBuild: URL(string: "https://accounts.x.ai")!
         }
     }
@@ -31,6 +34,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
         case .claude: "Open Claude"
         case .codex: "Open Codex"
         case .grokBuild: "Open Grok"
+        case .antigravity: "Open Antigravity"
         }
     }
 
@@ -40,6 +44,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
         case .claude: "Claude"
         case .codex: "Codex"
         case .grokBuild: "Grok CLI"
+        case .antigravity: "Antigravity"
         }
     }
 
@@ -49,6 +54,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
         case .claude: "Claude Code"
         case .codex: "Codex"
         case .grokBuild: "the Grok CLI"
+        case .antigravity: "Antigravity"
         }
     }
 
@@ -57,6 +63,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
         case .claude: "Sign in with Claude to read your usage"
         case .codex: "Sign in to Codex to read your usage"
         case .grokBuild: "Sign in with the Grok CLI to read your Grok usage"
+        case .antigravity: "Open Antigravity and sign in to read your usage"
         }
     }
 
@@ -67,6 +74,8 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
             Color(.sRGB, red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 87.0 / 255.0, opacity: 1)
         case .codex:
             Color(.sRGB, red: 122.0 / 255.0, green: 157.0 / 255.0, blue: 255.0 / 255.0, opacity: 1)
+        case .antigravity:
+            Color(.sRGB, red: 0.77, green: 0.47, blue: 0.99, opacity: 1)
         case .grokBuild:
             Color(.sRGB, red: 0.0 / 255.0, green: 191.0 / 255.0, blue: 168.0 / 255.0, opacity: 1)
         }

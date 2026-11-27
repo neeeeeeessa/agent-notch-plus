@@ -9,10 +9,14 @@ struct NotchRootView: View {
         ZStack(alignment: .topLeading) {
             notchBody(layout)
             pillEyes(layout)
-            cells(layout)
-            settingsOrb(layout)
-            peekHead(layout)
-            tooltip(layout)
+            if model.providers.isEmpty {
+                if model.isExpanded { chooseAssistants(layout) }
+            } else {
+                cells(layout)
+                settingsOrb(layout)
+                peekHead(layout)
+                tooltip(layout)
+            }
         }
         .frame(width: model.panelSize.width, height: model.panelSize.height, alignment: .topLeading)
         .animation(.spring(duration: 0.42, bounce: 0.22), value: model.isExpanded)
@@ -26,6 +30,20 @@ struct NotchRootView: View {
             .fill(.black)
             .frame(width: rect.width, height: rect.height)
             .position(x: rect.midX, y: rect.midY)
+    }
+
+    private func chooseAssistants(_ layout: NotchLayout) -> some View {
+        let rect = layout.bodyRect
+        return Button(action: model.orbClicked) {
+            Text("Choose assistants")
+                .font(.system(size: 11, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .frame(width: rect.width - 8, height: rect.height - 8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .position(x: rect.midX, y: rect.midY)
     }
 
     private func cells(_ layout: NotchLayout) -> some View {

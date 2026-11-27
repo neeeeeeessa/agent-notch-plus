@@ -16,7 +16,7 @@ struct SecurityHardeningTests {
         defaults.set(ProviderID.allCases.map(\.rawValue), forKey: "hiddenProviders")
         let preferences = Preferences(defaults: defaults)
         #expect(preferences.usageAccessProviders.isEmpty)
-        #expect(preferences.hiddenProviders == Set(ProviderID.allCases))
+        #expect(preferences.visibleProviders.isEmpty)
     }
 
     @Test func newInstallShowsNotchOnHover() {
@@ -42,22 +42,6 @@ struct SecurityHardeningTests {
         #expect(grok.calls == 0)
         #expect(codex.calls == 0)
         #expect(store.status(for: .claude) == .failed(UsageStore.disconnectedStatus))
-    }
-
-    @Test @MainActor func clickingAnOffProviderOpensSettingsInsteadOfRefreshing() {
-        let claude = CallCounter(id: .claude)
-        let codex = CallCounter(id: .codex)
-        let defaults = isolatedDefaults()
-        let store = UsageStore(providers: [claude, codex], defaults: defaults, enabledProviders: [.codex])
-        let model = NotchViewModel(preferences: Preferences(defaults: defaults), store: store)
-        var opened = 0
-        model.openSettings = { opened += 1 }
-        model.cellClicked(.claude)
-        #expect(opened == 1)
-        #expect(model.spinTurns[.claude] == nil)
-        model.cellClicked(.codex)
-        #expect(opened == 1)
-        #expect(model.spinTurns[.codex] == 1)
     }
 
     @Test func enableOneProviderFetchesOnlyThatProvider() async {

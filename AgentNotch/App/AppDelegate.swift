@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DemoUsageProvider(id: .claude),
             DemoUsageProvider(id: .codex),
             DemoUsageProvider(id: .grokBuild),
+            DemoUsageProvider(id: .antigravity),
         ])
         #else
         let store = UsageStore(
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ClaudeOAuthProvider(),
                 CodexLocalProvider(),
                 GrokBuildProvider(),
+                AntigravityProvider(),
             ],
             enabledProviders: preferences.usageAccessProviders,
             savedReadings: .standard
@@ -349,6 +351,17 @@ internal nonisolated struct DemoUsageProvider: UsageProvider {
                         usedFraction: 0.54,
                         resetsAt: now.addingTimeInterval(3 * 24 * 60 * 60)
                     ),
+                ],
+                fetchedAt: now
+            )
+        case .antigravity:
+            return ProviderSnapshot(
+                id: id, account: "Sample data", plan: nil,
+                windows: [
+                    LimitWindow(id: "gemini-session", label: "Gemini session", usedFraction: 0.35,
+                                resetsAt: now.addingTimeInterval(7200)),
+                    LimitWindow(id: "gemini-weekly", label: "Gemini weekly", usedFraction: 0.2,
+                                resetsAt: now.addingTimeInterval(259200)),
                 ],
                 fetchedAt: now
             )

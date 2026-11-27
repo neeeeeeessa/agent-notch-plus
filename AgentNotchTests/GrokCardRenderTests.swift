@@ -65,6 +65,8 @@ struct GrokCardRenderTests {
         }
         let defaults = UserDefaults(suiteName: "GrokCardRender.\(UUID().uuidString)")!
         defaults.set(NotchVisibility.alwaysShow.rawValue, forKey: "notchVisibility")
+        defaults.set(["claude", "codex", "grokBuild"], forKey: "usageAccessProviders")
+        defaults.set(["antigravity"], forKey: "hiddenProviders")
         let store = UsageStore(providers: providers, defaults: defaults)
         store.refreshAll()
         while store.isRefreshing { await Task.yield() }
@@ -85,12 +87,6 @@ struct GrokCardRenderTests {
             let size = try render(
                 TooltipCard(id: .grokBuild, status: status, direction: .pointsRight, tailCenter: 40), name)
             print("GROK CARD \(name) size=\(size)")
-            #expect(size.height <= NotchMetrics.tooltipMaxHeight)
-        }
-        for id in ProviderID.allCases {
-            let off = ProviderStatus.failed(UsageStore.disconnectedStatus)
-            let size = try render(
-                TooltipCard(id: id, status: off, direction: .pointsRight, tailCenter: 40), "card-off-\(id.rawValue)")
             #expect(size.height <= NotchMetrics.tooltipMaxHeight)
         }
         let stale = ProviderStatus.ready(grokSnapshot(extra: true), stale: true)

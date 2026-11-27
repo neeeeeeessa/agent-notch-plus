@@ -11,7 +11,7 @@ nonisolated enum UsageAccessGrant {
             let authFile = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/auth.json")
             if FileManager.default.isReadableFile(atPath: authFile.path) { return }
             try Keychain.requestReadAccess(service: "Codex Auth")
-        case .grokBuild:
+        case .grokBuild, .antigravity:
             break
         }
     }
@@ -160,7 +160,7 @@ struct SettingsView: View {
                 }
             }
             #if !AGENTNOTCH_DEMO
-            Text("Allow usage access stays off until you enable a provider, and that choice is remembered until you turn it off. Claude, Codex, and Grok may send an existing access token only to that provider. macOS may ask the first time a Keychain item is read.")
+            Text("Turn on an assistant to read its usage and show its circle in the notch. Your choices are remembered. macOS may ask the first time a Keychain item is read.")
                 .settingsDetail()
             if let usageAccessError {
                 Text(usageAccessError)
@@ -524,6 +524,8 @@ struct AccountRow: View {
             "Reads the existing Claude Code sign-in and sends that token only to api.anthropic.com."
         case .codex:
             "Reads the existing Codex sign-in and sends that token only to chatgpt.com."
+        case .antigravity:
+            "Reads usage from the Antigravity app on this Mac while it runs."
         case .grokBuild:
             "Sends the existing Grok CLI access token only to cli-chat-proxy.grok.com. Shows the shared weekly allowance used by Grok Build, Grok Bot and Cursor."
         }

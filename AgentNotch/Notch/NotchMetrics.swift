@@ -66,6 +66,7 @@ nonisolated enum NotchMetrics {
     static let tooltipHeightMargin: CGFloat = tooltipMaxHeight + tooltipTailLength + tooltipGap + 12
 
     static func bodyLength(cells: Int, stacked: Bool) -> CGFloat {
+        if cells == 0 { return stacked ? 66 : 134 }
         let count = max(cells, 1)
         if stacked {
             return stackStartInset + ringDiameter / 2 + CGFloat(count - 1) * stackPitch + ringToLabel + labelHeight / 2

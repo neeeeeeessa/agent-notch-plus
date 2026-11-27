@@ -42,7 +42,9 @@ struct TooltipCard: View {
                 }
                 // The Grok card reports a failed update on its own source line.
                 if stale, grokBilling == nil {
-                    if awaitingOwnerTool {
+                    if awaitingOwnerTool && id == .antigravity {
+                        note("Updates when you next open Antigravity")
+                    } else if awaitingOwnerTool {
                         note(
                             "Last updated \(snapshot.fetchedAt, format: .relative(presentation: .named)). Updates when you next use \(id.renewingTool)."
                         )
@@ -59,10 +61,6 @@ struct TooltipCard: View {
                 note(
                     "You stay signed in to the tool that owns the account. Switch accounts in \(id.ownerTool); the notch follows."
                 )
-            case .failed(let message) where message == UsageStore.disconnectedStatus:
-                // Usage access starts off; the card is where a new user first looks for it.
-                note("Usage access is off. Nothing is read from \(id.displayName) until you turn it on.")
-                note("Click to open Settings, then turn on Allow usage access under \(id.displayName).")
             case .failed(let message):
                 note(message)
             }

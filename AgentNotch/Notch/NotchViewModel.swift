@@ -204,8 +204,8 @@ final class NotchViewModel {
 
         let inShape = point.map { layout.shapeRect.insetBy(dx: -4, dy: -4).contains($0) } ?? false
         let inTooltip = point.flatMap { p in hoveredIndex.map { layout.tooltipHotRect(for: $0).contains(p) } } ?? false
-        let inOrb = point.map { isExpanded && layout.orbHotRect(orbShown: isOrbHovered).contains($0) } ?? false
-        let inHead = point.map { isExpanded && layout.headRect.contains($0) } ?? false
+        let inOrb = point.map { isExpanded && !providers.isEmpty && layout.orbHotRect(orbShown: isOrbHovered).contains($0) } ?? false
+        let inHead = point.map { isExpanded && !providers.isEmpty && layout.headRect.contains($0) } ?? false
         let interacting = visibility != .hidden && (inShape || inTooltip || inOrb || inHead)
         if isPeekInteracting != interacting { isPeekInteracting = interacting }
 
@@ -267,11 +267,7 @@ final class NotchViewModel {
     }
 
     func cellClicked(_ id: ProviderID) {
-        // An off provider has nothing to refresh; its card points here to turn it on.
-        if store.status(for: id) == .failed(UsageStore.disconnectedStatus) {
-            openSettings()
-            return
-        }
+        guard providers.contains(id) else { return }
         spinTurns[id, default: 0] += 1
         refreshRollStart = Date().timeIntervalSinceReferenceDate
         store.refresh(id)

@@ -32,6 +32,7 @@ struct LimitNotificationTests {
         defaults.set(visibility.rawValue, forKey: "notchVisibility")
         defaults.set(
             ProviderID.allCases.filter { $0 != .claude }.map(\.rawValue), forKey: "hiddenProviders")
+        defaults.set([ProviderID.claude.rawValue], forKey: "usageAccessProviders")
         return defaults
     }
 

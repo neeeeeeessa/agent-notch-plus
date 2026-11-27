@@ -34,6 +34,7 @@ struct MoodCueTests {
         defaults.set(visibility.rawValue, forKey: "notchVisibility")
         defaults.set(
             ProviderID.allCases.filter { $0 != .claude }.map(\.rawValue), forKey: "hiddenProviders")
+        defaults.set([ProviderID.claude.rawValue], forKey: "usageAccessProviders")
         let store = UsageStore(providers: [ScriptedProvider(id: .claude, box: box)], defaults: defaults)
         store.refresh(.claude)
         while store.isRefreshing { await Task.yield() }
