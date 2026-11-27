@@ -77,7 +77,7 @@ struct AntigravityTests {
     }
 
     /// Reply captured from Antigravity 2.35.2's local server (Pro plan), unchanged apart from layout.
-    private static let liveSummary = """
+    static let liveSummary = """
     {"response":{"groups":[
       {"displayName":"Gemini Models","description":"Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Neon), Orchestrator (Carbon), Orchestrator (Argon), Gemini 3.8 Flash","buckets":[
         {"bucketId":"gemini-weekly","displayName":"Weekly Limit Remaining","description":"You have used some of your weekly limit, it will fully refresh in 5 days, 20 hours.","window":"weekly","remainingFraction":0.66096336,"resetTime":"2026-12-03T10:22:49Z"},
