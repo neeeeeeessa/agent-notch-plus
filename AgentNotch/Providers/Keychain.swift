@@ -593,11 +593,12 @@ nonisolated enum LocalSecurityTool {
         if process.isRunning {
             _ = exited.wait(0.25)
         }
-        try? handle.close()
         guard !process.isRunning, process.terminationStatus == 0 else {
             if process.isRunning { reap(process, exited: exited, fd: fd) }
+            try? handle.close()
             return nil
         }
+        try? handle.close()
         while let last = collected.last, last == 0x0A || last == 0x0D {
             collected.removeLast()
         }
