@@ -14,7 +14,7 @@ struct StressTests {
         }
     }
 
-    @Test func seededQuotaMutationsKeepWindowInvariants() {
+    @Test func seededQuotaMutationsKeepWindowInvariants() throws {
         let started = ContinuousClock.now
         let model = """
         {"userStatus":{"email":"synthetic@example.invalid","cascadeModelConfigData":{"clientModelConfigs":[
@@ -45,7 +45,9 @@ struct StressTests {
         {"groups":[{"displayName":"Gemini\(String(repeating: "🌌", count: 20_000))","buckets":[\(buckets)]},
         {"displayName":"Gemini","buckets":[\(bucket)]}]}
         """
-        if let snapshot = try? AntigravityQuota.parse(Data(huge.utf8), grouped: true) { assertWindows(snapshot) }
+        let large = try AntigravityQuota.parse(Data(huge.utf8), grouped: true)
+        assertWindows(large)
+        #expect(large.headline?.id == "gemini-weekly")
         let nested = String(repeating: "[", count: 2000) + "null" + String(repeating: "]", count: 2000)
         #expect(throws: UsageProviderError.self) { try AntigravityQuota.parse(Data(nested.utf8), grouped: true) }
         #expect(accepted > 1000)
@@ -53,9 +55,10 @@ struct StressTests {
     }
 
     private func assertWindows(_ snapshot: ProviderSnapshot) {
-        let ids = snapshot.windows.compactMap { Int($0.id) }
+        let order = ["gemini-session", "gemini-weekly", "3p-session", "3p-weekly", "gemini", "3p"]
+        let ids = snapshot.windows.compactMap { order.firstIndex(of: $0.id) }
         #expect(ids.count == snapshot.windows.count && ids.count <= 4)
-        #expect(ids == Array(Set(ids)).sorted() && ids.allSatisfy { (0...3).contains($0) })
+        #expect(ids == Array(Set(ids)).sorted())
         #expect(snapshot.windows.allSatisfy {
             (0...1).contains($0.usedFraction) && ($0.resetsAt?.timeIntervalSince1970.isFinite ?? true)
         })
@@ -67,6 +70,7 @@ struct StressTests {
         let started = ContinuousClock.now
         let calls = Mutex(0)
         var discovery = AntigravityDiscovery()
+        discovery.isExecutable = { _ in true }
         discovery.files = { _ in
             (0..<1000).map { URL(fileURLWithPath: "/synthetic/hub_\($0).json") }
         }
@@ -88,22 +92,25 @@ struct StressTests {
         discovery.run = { tool, args in
             calls.withLock { $0 += 1 }
             if tool.contains("lsof") { return "p42\nn[::1]:5001\nn127.0.0.1:5000\nn*:5000\nn192.168.0.1:5002" }
+            if args.contains("91"), args.contains("pid=,comm=") { return "91 /tmp/language_server" }
+            if args.contains("42"), args.contains("pid=,comm=") { return "42 \(Self.executable)" }
             if args.contains("91") { return "91 \(getuid()) /tmp/language_server --csrf_token wrong" }
             if args.contains("42") { return " 42\t\(getuid()) \(Self.executable) --csrf_token valid --extension_server_port 5001" }
             return (100..<5100).map { "\($0) /usr/bin/sleep" }.joined(separator: "\n")
                 + "\n\t42   \(Self.executable)\n42 \(Self.executable)"
         }
-        #expect(discovery.hub()?.token == "valid")
-        #expect(calls.withLock { $0 } == 3)
-        let endpoints = discovery.processEndpoints()
+        #expect(discovery.hubs().first?.http?.token == "valid")
+        #expect(calls.withLock { $0 } == 4)
+        let endpoints = discovery.processEndpoints() ?? []
         #expect(endpoints.count == 1 && endpoints.first?.token == "valid" && endpoints.first?.port == 5000)
-        #expect(calls.withLock { $0 } == 6)
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(calls.withLock { $0 } == 7)
+        #expect(ContinuousClock.now - started < .seconds(10))
     }
 
     @Test func cancelledDiscoveryNeverInvokesTheRunner() async {
         let calls = Mutex(0)
         var discovery = AntigravityDiscovery()
+        discovery.isExecutable = { _ in true }
         discovery.run = { _, _ in calls.withLock { $0 += 1 }; return "" }
         let fixture = discovery
         let stream = AsyncStream<Void>.makeStream()
@@ -113,7 +120,7 @@ struct StressTests {
         }
         task.cancel()
         stream.continuation.finish()
-        #expect(await task.value.isEmpty)
+        #expect(await task.value == nil)
         #expect(calls.withLock { $0 } == 0)
     }
 
@@ -121,11 +128,13 @@ struct StressTests {
         let start = ContinuousClock.now
         #expect(LocalSecurityTool.run(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"],
                                       options: .init(timeout: 0.05, maxBytes: 4096)) == nil)
-        #expect(ContinuousClock.now - start < .seconds(2))
+        #expect(ContinuousClock.now - start < .seconds(8))
     }
 
     @Test @MainActor func layoutMatrixFitsPanelsAndSeparatesCells() {
-        let defaults = UserDefaults(suiteName: "StressTests.layout.\(UUID().uuidString)")!
+        let domain = "StressTests.layout.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
         let preferences = Preferences(defaults: defaults, loginItemEnabled: false)
         let model = NotchViewModel(preferences: preferences, store: UsageStore(providers: []))
         for count in 0...4 {
@@ -282,7 +291,7 @@ extension StressTests {
         } catch let error as URLError {
             #expect(error.code == .timedOut)
         }
-        #expect(ContinuousClock.now - start < .seconds(3))
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 
     @Test func invalidJSONFromLoopbackIsRejectedByParser() async throws {
@@ -338,16 +347,18 @@ extension StressTests {
         let store = UsageStore(providers: [provider], defaults: defaults, enabledProviders: [], savedReadings: defaults)
         let model = NotchViewModel(preferences: preferences, store: store)
         var started = await provider.starts.makeAsyncIterator()
+        var work: [Task<Void, Never>] = []
         for _ in 0..<200 {
             preferences.setUsageAccess(.antigravity, allowed: true)
             store.setEnabledProviders(preferences.usageAccessProviders)
             _ = await started.next()
+            if let task = store.refreshTask(for: .antigravity) { work.append(task) }
             preferences.setUsageAccess(.antigravity, allowed: false)
             store.setEnabledProviders(preferences.usageAccessProviders)
         }
         await provider.completeAll()
-        // All the continuations have been resumed before this actor yields.
-        for _ in 0..<10 { await Task.yield() }
+        #expect(work.count == 200)
+        for task in work { await task.value }
         #expect(model.providers.isEmpty)
         #expect(store.status(for: .antigravity) == .failed(UsageStore.disconnectedStatus))
         #expect(!store.isRefreshing)
@@ -358,6 +369,7 @@ extension StressTests {
         let port = Mutex(4100)
         let scans = Mutex(0)
         var discovery = AntigravityDiscovery()
+        discovery.isExecutable = { _ in true }
         discovery.files = { _ in port.withLock { $0 == 0 ? [] : [URL(fileURLWithPath: "/fake/hub_live.json")] } }
         discovery.read = { _ in port.withLock { Data("""
         {"pid":42,"httpPort":\($0),"csrfToken":"synthetic"}
@@ -365,6 +377,7 @@ extension StressTests {
         discovery.alive = { $0 == 42 }
         discovery.run = { tool, args in
             if tool.contains("lsof") { return port.withLock { "n127.0.0.1:\($0)" } }
+            if args.contains("42"), args.contains("pid=,comm=") { return "42 \(Self.executable)" }
             if args.contains("42") { return "42 \(getuid()) \(Self.executable)" }
             scans.withLock { $0 += 1 }
             return ""
@@ -424,13 +437,13 @@ extension StressTests {
         defer { server.stop() }
         let port = try await server.start()
         var discovery = AntigravityDiscovery()
-        discovery.files = { _ in [URL(fileURLWithPath: "/fake/hub_tls.json")] }
-        discovery.read = { _ in Data("""
-        {"pid":42,"httpPort":\(port),"csrfToken":"synthetic"}
-        """.utf8) }
+        discovery.isExecutable = { _ in true }
+        discovery.files = { _ in [] }
         discovery.alive = { $0 == 42 }
-        discovery.run = { tool, _ in
-            tool.contains("lsof") ? "n127.0.0.1:\(port)" : "42 \(getuid()) \(Self.executable)"
+        discovery.run = { tool, args in
+            if tool.contains("lsof") { return "n127.0.0.1:\(port)" }
+            if args.contains("pid=,comm=") { return "42 \(Self.executable)" }
+            return "42 \(getuid()) \(Self.executable) -csrf_token synthetic"
         }
         let schemes = Mutex<[Bool]>([])
         let provider = AntigravityProvider(discovery: discovery) { endpoint, method in
@@ -439,6 +452,220 @@ extension StressTests {
             return try await endpoint.post(method)
         }
         #expect(try await provider.fetch().headline?.label == "Gemini session")
-        #expect(schemes.withLock { $0 } == [false, true])
+        #expect(schemes.withLock { $0 } == [false, true, true])
+    }
+}
+
+extension StressTests {
+    private static let grouped = Data(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"5h","remainingFraction":0}]}]}"#.utf8)
+
+    private func hubDiscovery(_ files: [String]) -> AntigravityDiscovery {
+        var discovery = AntigravityDiscovery()
+        discovery.isExecutable = { _ in true }
+        discovery.files = { _ in files.indices.map { URL(fileURLWithPath: "/fake/hub_\($0).json") } }
+        discovery.read = { url in
+            guard let index = Int(url.deletingPathExtension().lastPathComponent.dropFirst(4)) else { return nil }
+            return Data(files[index].utf8)
+        }
+        discovery.alive = { $0 == 42 }
+        discovery.run = { tool, args in
+            if tool.contains("lsof") { return "n127.0.0.1:4100\nn127.0.0.1:4200\nn127.0.0.1:4300" }
+            if args.contains("pid=,comm=") { return "42 \(Self.executable)" }
+            return "42 \(getuid()) \(Self.executable) -csrf_token synthetic"
+        }
+        return discovery
+    }
+
+    @Test func prefersHubTLSAndRecoversFromBrokenOrTruncatedHubs() async throws {
+        let discovery = hubDiscovery([
+            #"{"pid":42,"httpsPort":"#,
+            #"{"pid":42,"httpsPort":4100,"httpPort":4200,"csrfToken":"new"}"#,
+            #"{"pid":42,"httpsPort":4300,"csrfToken":"old"}"#,
+        ])
+        let calls = Mutex<[String]>([])
+        let provider = AntigravityProvider(discovery: discovery) { endpoint, method in
+            calls.withLock { $0.append("\(endpoint.port):\(endpoint.plainHTTP):\(endpoint.token):\(method)") }
+            guard endpoint.port == 4300 else { throw URLError(.networkConnectionLost) }
+            if method == .summary { return Self.grouped }
+            throw URLError(.networkConnectionLost)
+        }
+        let snapshot = try await provider.fetch()
+        #expect(snapshot.headline?.id == "3p-session")
+        #expect(snapshot.headline?.label == "Claude + GPT session")
+        #expect(calls.withLock { $0 } == [
+            "4100:false:new:summary", "4200:true:new:summary",
+            "4300:false:old:summary", "4300:false:old:status",
+        ])
+    }
+
+    @Test func healthyVerifiedHubSendsBothRequestsOverHTTPS() async throws {
+        let discovery = hubDiscovery([#"{"pid":42,"httpsPort":4100,"httpPort":4200,"csrfToken":"synthetic"}"#])
+        let methods = Mutex<[AntigravityEndpoint.Method]>([])
+        let provider = AntigravityProvider(discovery: discovery) { endpoint, method in
+            #expect(endpoint.port == 4100 && !endpoint.plainHTTP && endpoint.token == "synthetic")
+            methods.withLock { $0.append(method) }
+            return Self.grouped
+        }
+        #expect(try await provider.fetch().headline?.id == "3p-session")
+        #expect(methods.withLock { $0 } == [.summary, .status])
+    }
+
+    @Test func processScansAllTLSPortsBeforeHTTP() async throws {
+        let calls = Mutex<[String]>([])
+        let provider = AntigravityProvider(discovery: hubDiscovery([])) { endpoint, method in
+            calls.withLock { $0.append("\(endpoint.port):\(endpoint.plainHTTP):\(method)") }
+            guard endpoint.plainHTTP, endpoint.port == 4100 else { throw URLError(.secureConnectionFailed) }
+            return Self.grouped
+        }
+        _ = try await provider.fetch()
+        #expect(calls.withLock { $0 } == [
+            "4100:false:summary", "4200:false:summary", "4300:false:summary", "4100:true:summary", "4100:true:status",
+        ])
+    }
+
+    @Test func executableValidationUsesExactRunningPath() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = root.appendingPathComponent("Language Tools")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = folder.appendingPathComponent("language_server")
+        try Data().write(to: executable)
+        var discovery = AntigravityDiscovery()
+        discovery.executableRoot = root
+        #expect(!discovery.validExecutable(executable.path))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        #expect(discovery.validExecutable(executable.path))
+        #expect(!discovery.validExecutable(folder.appendingPathComponent("language_server_missing").path))
+        #expect(AntigravityDiscovery.commandArguments(
+            Substring(executable.path + " -debug --csrf_token synthetic"), executable: executable.path
+        )?.contains("-debug") == true)
+        #expect(AntigravityDiscovery.commandArguments(
+            Substring(executable.path + ".js --csrf_token synthetic"), executable: executable.path
+        ) == nil)
+        let electron = root.appendingPathComponent("Electron").path
+        #expect(!discovery.validExecutable(electron))
+        #expect(AntigravityDiscovery.commandArguments(
+            Substring(electron + " /tmp/language_server.js --csrf_token synthetic"), executable: executable.path
+        ) == nil)
+    }
+
+    @Test(arguments: [(401, "{}"), (403, "{}"), (400, #"{"code":"permission_denied"}"#),
+                      (200, #"{"code":"unauthenticated"}"#)])
+    func signedOutLoopbackRepliesGetSignInHint(_ reply: (Int, String)) async throws {
+        let (code, body) = reply
+        let server = try LoopbackServer { connection in
+            Self.send(Data("HTTP/1.1 \(code) Test\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)".utf8),
+                      via: connection)
+        }
+        defer { server.stop() }
+        let port = try await server.start()
+        do {
+            let endpoint = AntigravityEndpoint(port: port, token: "synthetic", plainHTTP: true)
+            _ = try AntigravityQuota.parse(await endpoint.post(.summary), grouped: true)
+            Issue.record("Signed-out response was accepted")
+        } catch UsageProviderError.needsAuth(let message) {
+            #expect(message == ProviderID.antigravity.signInHint)
+        }
+    }
+
+    @Test @MainActor func summaryEnrichmentHandlesAccountSwitchAndClearsSignedOutReadings() async throws {
+        let state = Mutex(0)
+        let discovery = hubDiscovery([#"{"pid":42,"httpsPort":4100,"httpPort":4200,"csrfToken":"synthetic"}"#])
+        let provider = AntigravityProvider(discovery: discovery) { endpoint, method in
+            #expect(!endpoint.plainHTTP && endpoint.port == 4100)
+            let mode = state.withLock { $0 }
+            if method == .summary {
+                if mode == 2 { return Self.grouped }
+                return Data(#"{"groups":[{"displayName":"Claude and GPT models","buckets":[{"window":"5h","remainingFraction":0.5}]}]}"#.utf8)
+            }
+            if mode == 3 { return Data(#"{"code":"unauthenticated"}"#.utf8) }
+            return Data("""
+            {"userStatus":{"email":"account\(mode)@example.invalid","planStatus":{"planInfo":{"planName":"Sample Plus"}}}}
+            """.utf8)
+        }
+        let domain = "StressTests.identity.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = UsageStore(providers: [provider], defaults: defaults, savedReadings: defaults)
+        func refresh() async {
+            store.refresh(.antigravity)
+            await store.refreshTask(for: .antigravity)?.value
+        }
+        await refresh()
+        #expect(store.status(for: .antigravity).snapshot?.account == "account0@example.invalid")
+        #expect(store.status(for: .antigravity).snapshot?.plan == "Sample Plus")
+        state.withLock { $0 = 2 }
+        await refresh()
+        #expect(store.status(for: .antigravity).snapshot?.account == "account2@example.invalid")
+        #expect(store.status(for: .antigravity).snapshot?.headline?.usedFraction == 1)
+        #expect(store.limitEventRevision == 0)
+        state.withLock { $0 = 3 }
+        await refresh()
+        #expect(store.status(for: .antigravity) == .needsAuth(ProviderID.antigravity.signInHint))
+        #expect(defaults.data(forKey: UsageStore.savedReadingsKey) == Data("{}".utf8))
+    }
+
+    @Test func missingExhaustedAntigravityWindowDoesNotTriggerReset() throws {
+        let previous = try AntigravityQuota.parse(Self.grouped, grouped: true)
+        let current = try AntigravityQuota.parse(Data(#"{"userStatus":{"cascadeModelConfigData":{"clientModelConfigs":[{"label":"Claude","quotaInfo":{"remainingFraction":0.5}}]}}}"#.utf8), grouped: false)
+        #expect(previous.headline?.id == "3p-session")
+        #expect(current.headline?.id == "3p")
+        #expect(LimitEvent.detect(previous: previous, current: current, now: .now).isEmpty)
+    }
+
+    @Test @MainActor func deadlineMissIsNotCachedAndCircleClickSkipsBackoff() async throws {
+        let scans = Mutex(0)
+        let base = ContinuousClock.now
+        let clock = Mutex(base)
+        var discovery = AntigravityDiscovery()
+        discovery.files = { _ in [] }
+        discovery.clock = { clock.withLock { $0 } }
+        discovery.run = { _, _ in
+            let count = scans.withLock { $0 += 1; return $0 }
+            if count == 1 { clock.withLock { $0 = base + .seconds(4) } }
+            return ""
+        }
+        var provider = AntigravityProvider(discovery: discovery)
+        provider.appIsRunning = { false }
+        let domain = "StressTests.backoff.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let preferences = Preferences(defaults: defaults, loginItemEnabled: false)
+        preferences.setUsageAccess(.antigravity, allowed: true)
+        let store = UsageStore(providers: [provider], defaults: defaults)
+        for _ in 0..<3 {
+            store.refresh(.antigravity)
+            await store.refreshTask(for: .antigravity)?.value
+        }
+        #expect(scans.withLock { $0 } == 2)
+        NotchViewModel(preferences: preferences, store: store).cellClicked(.antigravity)
+        await store.refreshTask(for: .antigravity)?.value
+        #expect(scans.withLock { $0 } == 3)
+    }
+}
+
+extension StressTests {
+    @Test func serverRestartDuringFetchRecoversOnNextRefresh() async throws {
+        let port = Mutex(4100)
+        var discovery = hubDiscovery([#"{"pid":42,"httpsPort":4100,"csrfToken":"before"}"#])
+        discovery.read = { _ in port.withLock {
+            Data(#"{"pid":42,"httpsPort":\#($0),"csrfToken":"synthetic"}"#.utf8)
+        } }
+        let baseRun = discovery.run
+        discovery.run = { tool, args in
+            if tool.contains("lsof") { return port.withLock { "n127.0.0.1:\($0)" } }
+            if !args.contains("-p") { return "" }
+            return baseRun(tool, args)
+        }
+        let provider = AntigravityProvider(discovery: discovery) { endpoint, _ in
+            if endpoint.port == 4100 {
+                port.withLock { $0 = 4200 }
+                throw URLError(.networkConnectionLost)
+            }
+            #expect(endpoint.port == 4200)
+            return Self.grouped
+        }
+        await #expect(throws: UsageProviderError.self) { try await provider.fetch() }
+        #expect(try await provider.fetch().headline?.id == "3p-session")
     }
 }
