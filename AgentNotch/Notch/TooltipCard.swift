@@ -22,7 +22,7 @@ struct TooltipCard: View {
             header
             switch status {
             case .ready(let snapshot, let stale):
-                if id == .antigravity, let account = snapshot.account { note("\(account)") }
+                if id == .antigravity, let account = snapshot.account { note(account) }
                 let grokBilling = id == .grokBuild ? snapshot.grokBilling : nil
                 if let grokBilling {
                     grokBillingSection(snapshot: snapshot, billing: grokBilling, stale: stale)
@@ -46,13 +46,13 @@ struct TooltipCard: View {
                     if awaitingOwnerTool && id == .antigravity {
                         note("Updates when you next open Antigravity")
                     } else if awaitingOwnerTool {
-                        note(
+                        note(Text(
                             "Last updated \(snapshot.fetchedAt, format: .relative(presentation: .named)). Updates when you next use \(id.renewingTool)."
-                        )
+                        ))
                     } else {
-                        note(
+                        note(Text(
                             "Couldn't read usage; showing the last reading from \(snapshot.fetchedAt, format: .relative(presentation: .named))."
-                        )
+                        ))
                     }
                 }
             case .waiting:
@@ -86,15 +86,15 @@ struct TooltipCard: View {
                 .foregroundStyle(id.accentColor)
             Spacer(minLength: 0)
             if let plan = status.snapshot?.plan {
-                Text(plan)
+                Text(verbatim: plan)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.5))
             }
         }
     }
 
-    private func note(_ text: LocalizedStringKey) -> some View {
-        Text(text)
+    private func note(_ text: Text) -> some View {
+        text
             .font(.system(size: 11))
             .foregroundStyle(.white.opacity(0.55))
             .fixedSize(horizontal: false, vertical: true)
@@ -102,7 +102,7 @@ struct TooltipCard: View {
     }
 
     private func note(_ text: String) -> some View {
-        note(LocalizedStringKey(text))
+        note(Text(verbatim: text))
     }
 
     private func grokBillingSection(snapshot: ProviderSnapshot, billing: GrokBilling, stale: Bool) -> some View {
@@ -116,7 +116,7 @@ struct TooltipCard: View {
                     .padding(.top, 6)
             }
             if let caption {
-                Text(caption)
+                Text(verbatim: caption)
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.5))
                     .fixedSize(horizontal: false, vertical: true)
@@ -162,7 +162,7 @@ struct TooltipCard: View {
             if !extras.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(extras.enumerated()), id: \.offset) { _, line in
-                        Text(line)
+                        Text(verbatim: line)
                             .font(.system(size: 10))
                             .foregroundStyle(.white.opacity(0.85))
                             .fixedSize(horizontal: false, vertical: true)
@@ -189,7 +189,7 @@ struct TooltipCard: View {
     private func grokProductRow(_ share: UsageShare, overall: Double, showsBar: Bool) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 0) {
-                Text(share.label)
+                Text(verbatim: share.label)
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
                 Spacer(minLength: 6)
@@ -326,11 +326,11 @@ struct LimitWindowRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
-                Text(window.label)
+                Text(verbatim: window.label)
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.85))
                 Spacer(minLength: 8)
-                Text(resetText)
+                Text(verbatim: resetText)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.5))
                     .lineLimit(1)
@@ -393,13 +393,13 @@ struct SessionRow: View {
             Circle()
                 .fill(activityColor)
                 .frame(width: 6, height: 6)
-            Text(session.name)
+            Text(verbatim: session.name)
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            Text(elapsed)
+            Text(verbatim: elapsed)
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.5))
                 .monospacedDigit()

@@ -484,7 +484,7 @@ struct AccountRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(id.displayName)
                         .font(.system(size: 13, weight: .medium))
-                    Text(statusText)
+                    Text(verbatim: statusText)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
