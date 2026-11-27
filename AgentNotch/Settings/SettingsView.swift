@@ -27,7 +27,8 @@ final class UsageAccessGrantCoordinator {
     func begin(_ id: ProviderID) -> UInt? {
         if approving.contains(id) { return nil }
         approving.insert(id)
-        return generation[id, default: 0]
+        generation[id, default: 0] &+= 1
+        return generation[id]
     }
 
     func cancel(_ id: ProviderID) {
@@ -36,9 +37,8 @@ final class UsageAccessGrantCoordinator {
     }
 
     func complete(_ id: ProviderID, generation: UInt) -> Bool {
-        guard self.generation[id, default: 0] == generation else { return false }
-        approving.remove(id)
-        return true
+        guard self.generation[id] == generation else { return false }
+        return approving.remove(id) != nil
     }
 }
 
