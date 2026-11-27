@@ -231,12 +231,24 @@ struct ProviderCell: View {
 
     private var headline: LimitWindow? { status.snapshot?.headline }
     private var dimmed: Bool { headline == nil || status.isStale }
+    private var resetCredits: ResetCredits? { status.snapshot?.resetCredits }
+    private var activeResetCount: Int { resetCredits?.activeCount() ?? 0 }
+    private var hasExpiringResetSoon: Bool {
+        !status.isStale && (resetCredits?.hasExpiringSoon() ?? false)
+    }
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            cell(outdated: status.isOutdated(at: context.date), now: context.date)
+        }
+    }
+
+    private func cell(outdated: Bool, now: Date) -> some View {
         VStack(spacing: NotchMetrics.ringLabelSpacing) {
             ZStack {
                 StatusRing(
-                    fraction: headline?.usedFraction,
+                    // An outdated reading would pass for the current level; show its age instead.
+                    fraction: outdated ? nil : headline?.usedFraction,
                     color: headline == nil ? .clear : id.accentColor,
                     dimmed: status.isStale
                 )
@@ -248,14 +260,30 @@ struct ProviderCell: View {
                     .opacity(dimmed ? 0.42 : 1)
             }
             .frame(width: NotchMetrics.ringDiameter, height: NotchMetrics.ringDiameter)
-            label
+            .overlay(alignment: .topTrailing) {
+                if activeResetCount > 0 {
+                    ResetCountPill(
+                        count: activeResetCount,
+                        color: hasExpiringResetSoon ? ResetCreditsStyle.expiringSoonColor : id.accentColor,
+                        dimmed: status.isStale
+                    )
+                    .offset(x: 4, y: -2)
+                }
+            }
+            label(outdated: outdated, now: now)
                 .frame(height: NotchMetrics.labelHeight)
         }
     }
 
     @ViewBuilder
-    private var label: some View {
-        if let headline {
+    private func label(outdated: Bool, now: Date) -> some View {
+        if outdated, let snapshot = status.snapshot {
+            Text(verbatim: ProviderStatus.ageLabel(since: snapshot.fetchedAt, now: now))
+                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.45))
+                .accessibilityLabel("Last reading \(ProviderStatus.ageLabel(since: snapshot.fetchedAt, now: now)) ago, can't update")
+        } else if let headline {
             Text("\(Int((headline.usedFraction * 100).rounded()))%")
                 .font(.system(size: 14.5, weight: .semibold, design: .rounded))
                 .monospacedDigit()
@@ -268,6 +296,25 @@ struct ProviderCell: View {
                 .fill(.white)
                 .frame(width: 12, height: 2)
         }
+    }
+}
+
+/// Compact banked-reset count badge tucked on the corner of a provider ring.
+struct ResetCountPill: View {
+    let count: Int
+    let color: Color
+    var dimmed: Bool = false
+
+    var body: some View {
+        Text(verbatim: count > 99 ? "99+" : "\(count)")
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.black)
+            .padding(.horizontal, 4.5)
+            .padding(.vertical, 1.5)
+            .background(Capsule().fill(color))
+            .overlay(Capsule().stroke(.black, lineWidth: 1.5))
+            .opacity(dimmed ? 0.55 : 1)
     }
 }
 

@@ -126,4 +126,111 @@ struct ProviderUsageTests {
         #expect(CodexLocalProvider().authAccountID(in: blob) == "acct_1")
     }
 
+    @Test func codexUsageParsesSummaryResetCountAndDetailFetchPolicy() throws {
+        let provider = CodexLocalProvider()
+        let withResets: [String: Any] = [
+            "plan_type": "prolite",
+            "rate_limit": [
+                "secondary_window": [
+                    "used_percent": 7,
+                    "limit_window_seconds": 604_800,
+                ]
+            ],
+            "rate_limit_reset_credits": ["available_count": 4],
+        ]
+        let snapshot = try provider.snapshot(from: withResets)
+        #expect(snapshot.resetCredits?.availableCount == 4)
+        #expect(snapshot.resetCredits?.items.isEmpty == true)
+        #expect(provider.shouldFetchResetCreditDetails(in: withResets))
+
+        let zeroResets: [String: Any] = [
+            "rate_limit_reset_credits": ["available_count": 0]
+        ]
+        #expect(!provider.shouldFetchResetCreditDetails(in: zeroResets))
+        #expect(provider.shouldFetchResetCreditDetails(in: [:]))
+    }
+
+    @Test func codexResetCreditsParserFiltersSortsAndFlagsExpiringSoon() throws {
+        let now = try #require(JSONDate.parse("2026-11-27T16:00:00Z"))
+        let payload: [String: Any] = [
+            "available_count": 4,
+            "credits": [
+                ["id": "c4", "title": "Full reset", "status": "available", "expires_at": "2026-12-26T06:21:00Z"],
+                ["id": "c-used", "title": "Full reset", "status": "redeemed", "expires_at": "2026-11-29T10:00:00Z"],
+                ["id": "c-old", "title": "Full reset", "status": "available", "expires_at": "2026-11-26T10:00:00Z"],
+                ["id": "c1", "reset_type": "full", "status": "available", "expires_at": "2026-11-30T20:29:00Z"],
+                ["id": "c2", "title": "Full reset", "status": "available", "expires_at": "2026-12-01T22:56:00Z"],
+                ["id": "c3", "reset_type": "weekly", "status": "available", "expires_at": "2026-12-12T22:52:00Z"],
+            ],
+        ]
+        let credits = try #require(CodexLocalProvider().parseResetCredits(from: payload, now: now))
+        #expect(credits.activeCount(now: now) == 4)
+        #expect(credits.items.map(\.id) == ["c1", "c2", "c3", "c4"])
+        #expect(credits.items.map(\.label) == ["Full reset", "Full reset", "Weekly reset", "Full reset"])
+        #expect(credits.hasExpiringSoon(now: now))
+        #expect(ResetCredits.isExpiringSoon(credits.items[0].expiresAt, now: now))
+        #expect(ResetCredits.isExpiringSoon(credits.items[1].expiresAt, now: now))
+        #expect(!ResetCredits.isExpiringSoon(credits.items[2].expiresAt, now: now))
+        #expect(ResetCreditsText.relativeRemaining(until: credits.items[0].expiresAt!, now: now) == "3d")
+        #expect(ResetCreditsText.relativeRemaining(until: credits.items[1].expiresAt!, now: now) == "4d")
+    }
+
+    @Test func claudeCedarEmberGrantsParseAndFilterCorrectly() throws {
+        let now = try #require(JSONDate.parse("2026-11-27T16:00:00Z"))
+        let root: [String: Any] = [
+            "cedar_ember": [
+                "eligible": true,
+                "grants": [
+                    [
+                        "id": "g-later",
+                        "label": "Full reset",
+                        "resets_left": 2,
+                        "ends_at": "2026-12-15T12:00:00Z",
+                        "paused": false,
+                    ],
+                    [
+                        "id": "g-paused",
+                        "type": "session",
+                        "resets_left": 1,
+                        "ends_at": "2026-11-29T12:00:00Z",
+                        "paused": true,
+                    ],
+                    [
+                        "id": "g-expired",
+                        "type": "weekly",
+                        "resets_left": 1,
+                        "ends_at": "2026-11-20T12:00:00Z",
+                        "paused": false,
+                    ],
+                    [
+                        "id": "g-zero",
+                        "type": "full",
+                        "resets_left": 0,
+                        "ends_at": "2026-12-01T12:00:00Z",
+                        "paused": false,
+                    ],
+                    [
+                        "id": "g-soon",
+                        "gives_back_weekly": true,
+                        "resets_left": 1,
+                        "ends_at": "2026-11-30T18:00:00Z",
+                        "paused": false,
+                    ],
+                ],
+            ]
+        ]
+        let credits = try #require(ClaudeOAuthProvider().resetCredits(from: root, now: now))
+        #expect(credits.activeCount(now: now) == 3)
+        #expect(credits.items.map(\.id) == ["g-soon", "g-later"])
+        #expect(credits.items.map(\.label) == ["Fable reset", "Full reset"])
+        #expect(credits.items.map(\.count) == [1, 2])
+        #expect(credits.hasExpiringSoon(now: now))
+
+        let noGrant: [String: Any] = ["cedar_ember": ["eligible": false, "ineligible_reason": "no_grant", "grants": []]]
+        #expect(ClaudeOAuthProvider().resetCredits(from: noGrant, now: now)?.activeCount(now: now) == 0)
+
+        let surfaceRejected: [String: Any] = ["cedar_ember": ["eligible": false, "ineligible_reason": "surface", "grants": []]]
+        #expect(ClaudeOAuthProvider().resetCredits(from: surfaceRejected, now: now) == nil)
+    }
+
 }

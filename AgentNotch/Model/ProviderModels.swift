@@ -13,13 +13,13 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
     var displayName: String {
         switch self {
         case .claude: "Claude"
-        case .codex: "Codex"
+        case .codex: "ChatGPT"
         case .grokBuild: "Grok"
         case .antigravity: "Antigravity"
         }
     }
 
-    /// Where the account is managed. Codex stays in its own app.
+    /// Where the account is managed. ChatGPT stays in its own app.
     var manageURL: URL {
         switch self {
         case .claude: URL(string: "https://claude.ai/settings/usage")!
@@ -32,7 +32,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
     var manageTitle: String {
         switch self {
         case .claude: "Open Claude"
-        case .codex: "Open Codex"
+        case .codex: "Open ChatGPT"
         case .grokBuild: "Open Grok"
         case .antigravity: "Open Antigravity"
         }
@@ -42,7 +42,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
     var ownerTool: String {
         switch self {
         case .claude: "Claude"
-        case .codex: "Codex"
+        case .codex: "ChatGPT"
         case .grokBuild: "Grok CLI"
         case .antigravity: "Antigravity"
         }
@@ -52,7 +52,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
     var renewingTool: String {
         switch self {
         case .claude: "Claude Code"
-        case .codex: "Codex"
+        case .codex: "ChatGPT"
         case .grokBuild: "the Grok CLI"
         case .antigravity: "Antigravity"
         }
@@ -61,7 +61,7 @@ nonisolated enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiab
     var signInHint: String {
         switch self {
         case .claude: "Sign in with Claude to read your usage"
-        case .codex: "Sign in to Codex to read your usage"
+        case .codex: "Sign in to ChatGPT to read your usage"
         case .grokBuild: "Sign in with the Grok CLI to read your Grok usage"
         case .antigravity: "Open Antigravity and sign in to read your usage"
         }
@@ -135,6 +135,74 @@ nonisolated struct GrokBilling: Codable, Sendable, Equatable {
     var conflictingProducts: [String] = []
 }
 
+/// One banked, one-time usage limit reset credit (e.g. ChatGPT, Claude, or Antigravity banked resets).
+nonisolated struct ResetCredit: Codable, Sendable, Equatable, Identifiable {
+    var id: String
+    var label: String
+    var expiresAt: Date?
+    var count: Int = 1
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, expiresAt, count
+    }
+
+    init(id: String, label: String, expiresAt: Date?, count: Int = 1) {
+        self.id = id
+        self.label = label
+        self.expiresAt = expiresAt
+        self.count = max(1, count)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        label = try container.decode(String.self, forKey: .label)
+        expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
+        count = max(1, try container.decodeIfPresent(Int.self, forKey: .count) ?? 1)
+    }
+}
+
+/// Banked usage limit reset credits reported by a provider.
+nonisolated struct ResetCredits: Codable, Sendable, Equatable {
+    static let expiringSoonThreshold: TimeInterval = 5 * 24 * 60 * 60
+
+    var availableCount: Int
+    /// Available credits sorted soonest-expiring first. Empty when only a summary count was reported.
+    var items: [ResetCredit] = []
+    /// Set when the credits were copied from a web page rather than read live, e.g. Claude's usage page.
+    var checkedAt: Date? = nil
+
+    func activeItems(now: Date = Date()) -> [ResetCredit] {
+        items.filter { credit in
+            guard let expiresAt = credit.expiresAt else { return true }
+            return expiresAt > now
+        }
+    }
+
+    func activeCount(now: Date = Date()) -> Int {
+        if !items.isEmpty {
+            return activeItems(now: now).reduce(0) { $0 + max(1, $1.count) }
+        }
+        return max(0, availableCount)
+    }
+
+    func hasExpiringSoon(now: Date = Date(), within threshold: TimeInterval = Self.expiringSoonThreshold) -> Bool {
+        activeItems(now: now).contains {
+            Self.isExpiringSoon($0.expiresAt, now: now, within: threshold)
+        }
+    }
+
+    static func isExpiringSoon(
+        _ date: Date?,
+        now: Date = Date(),
+        within threshold: TimeInterval = expiringSoonThreshold
+    ) -> Bool {
+        guard let date else { return false }
+        let remaining = date.timeIntervalSince(now)
+        return remaining > 0 && remaining <= threshold
+    }
+}
+
 /// A complete reading from one provider.
 nonisolated struct ProviderSnapshot: Codable, Sendable, Equatable {
     var id: ProviderID
@@ -146,6 +214,7 @@ nonisolated struct ProviderSnapshot: Codable, Sendable, Equatable {
     /// True when the provider's own source is already old. A fresh fetch of an expired cache stays stale.
     var sourceIsStale: Bool = false
     var grokBilling: GrokBilling? = nil
+    var resetCredits: ResetCredits? = nil
     /// RAM-only account identity used to avoid showing one account's reading for another. Never displayed, logged or persisted.
     var accountBinding: String? = nil
 
@@ -153,7 +222,7 @@ nonisolated struct ProviderSnapshot: Codable, Sendable, Equatable {
     var headline: LimitWindow? { windows.first }
 
     private enum CodingKeys: String, CodingKey {
-        case id, account, plan, windows, sessions, fetchedAt, sourceIsStale, grokBilling
+        case id, account, plan, windows, sessions, fetchedAt, sourceIsStale, grokBilling, resetCredits
     }
 
     init(
@@ -165,6 +234,7 @@ nonisolated struct ProviderSnapshot: Codable, Sendable, Equatable {
         fetchedAt: Date,
         sourceIsStale: Bool = false,
         grokBilling: GrokBilling? = nil,
+        resetCredits: ResetCredits? = nil,
         accountBinding: String? = nil
     ) {
         self.id = id
@@ -175,6 +245,7 @@ nonisolated struct ProviderSnapshot: Codable, Sendable, Equatable {
         self.fetchedAt = fetchedAt
         self.sourceIsStale = sourceIsStale
         self.grokBilling = grokBilling
+        self.resetCredits = resetCredits
         self.accountBinding = accountBinding
     }
 
@@ -188,6 +259,7 @@ nonisolated struct ProviderSnapshot: Codable, Sendable, Equatable {
         fetchedAt = try container.decode(Date.self, forKey: .fetchedAt)
         sourceIsStale = try container.decode(Bool.self, forKey: .sourceIsStale)
         grokBilling = try container.decodeIfPresent(GrokBilling.self, forKey: .grokBilling)
+        resetCredits = try container.decodeIfPresent(ResetCredits.self, forKey: .resetCredits)
         accountBinding = nil
     }
 
@@ -201,6 +273,7 @@ nonisolated struct ProviderSnapshot: Codable, Sendable, Equatable {
         try container.encode(fetchedAt, forKey: .fetchedAt)
         try container.encode(sourceIsStale, forKey: .sourceIsStale)
         try container.encodeIfPresent(grokBilling, forKey: .grokBilling)
+        try container.encodeIfPresent(resetCredits, forKey: .resetCredits)
     }
 }
 
@@ -249,6 +322,26 @@ nonisolated enum ProviderStatus: Sendable, Equatable {
     var isStale: Bool {
         if case .ready(_, true) = self { return true }
         return false
+    }
+
+    /// How long a reading that can no longer refresh may still show as a percentage.
+    static let outdatedAfter: TimeInterval = 15 * 60
+
+    /// A stale reading too old to pass for the current percentage: past `outdatedAfter`,
+    /// or past its headline window's reset, after which the number is known to be wrong.
+    func isOutdated(at now: Date) -> Bool {
+        guard case .ready(let snapshot, true) = self else { return false }
+        if now.timeIntervalSince(snapshot.fetchedAt) >= Self.outdatedAfter { return true }
+        if let resetsAt = snapshot.headline?.resetsAt, resetsAt <= now { return true }
+        return false
+    }
+
+    /// Compact age of a reading for the circle label: "15m", "3h", "2d".
+    static func ageLabel(since fetchedAt: Date, now: Date) -> String {
+        let minutes = max(Int(now.timeIntervalSince(fetchedAt) / 60), 1)
+        if minutes < 60 { return "\(minutes)m" }
+        if minutes < 48 * 60 { return "\(minutes / 60)h" }
+        return "\(minutes / (24 * 60))d"
     }
 }
 

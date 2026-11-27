@@ -523,7 +523,7 @@ struct AccountRow: View {
         case .claude:
             "Reads the existing Claude Code sign-in and sends that token only to api.anthropic.com."
         case .codex:
-            "Reads the existing Codex sign-in and sends that token only to chatgpt.com."
+            "Reads the existing ChatGPT sign-in and sends that token only to chatgpt.com."
         case .antigravity:
             "Reads usage from the Antigravity app on this Mac while it runs."
         case .grokBuild:

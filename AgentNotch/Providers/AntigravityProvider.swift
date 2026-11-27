@@ -1,6 +1,7 @@
 import AppKit
 import CoreFoundation
 import Foundation
+import OSLog
 import Security
 import Synchronization
 
@@ -16,9 +17,12 @@ nonisolated struct AntigravityProvider: UsageProvider {
         let lastMiss = Mutex<ContinuousClock.Instant?>(nil)
     }
     private let discoveryCache = DiscoveryCache()
+    private static let appBundleIdentifiers = ["com.google.antigravity", "com.google.antigravity-ide"]
     var now: @Sendable () -> ContinuousClock.Instant = { .now }
     var appIsRunning: @Sendable () -> Bool = {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.antigravity").isEmpty
+        Self.appBundleIdentifiers.contains {
+            !NSRunningApplication.runningApplications(withBundleIdentifier: $0).isEmpty
+        }
     }
 
     func resetDiscoveryBackoff() {
@@ -178,7 +182,7 @@ nonisolated struct AntigravityEndpoint: Hashable {
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue(token, forHTTPHeaderField: "X-Codeium-Csrf-Token")
+        if !token.isEmpty { request.setValue(token, forHTTPHeaderField: "X-Codeium-Csrf-Token") }
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
@@ -299,10 +303,24 @@ nonisolated struct AntigravityDiscovery {
     }
 
     private static let appRoot = URL(fileURLWithPath: "/Applications/Antigravity.app/Contents", isDirectory: true)
+    private static let googleCLIRequirement =
+        #"identifier "cli" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "EQHXZ8M8AV""#
+    static let defaultSignedExecutables: [URL] = {
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        return [
+            home.appendingPathComponent(".gemini/bin/agy"),
+            home.appendingPathComponent(".local/bin/agy"),
+        ]
+    }()
+
     var executableRoot = Self.appRoot
+    var signedExecutables = Self.defaultSignedExecutables
     var isExecutable: @Sendable (URL) -> Bool = { url in
         (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
             && FileManager.default.isExecutableFile(atPath: url.path)
+    }
+    var verifySignedProcess: @Sendable (Int32, URL) -> Bool = {
+        Self.verifyGoogleSignedCLI(pid: $0, expectedExecutable: $1)
     }
     var clock: @Sendable () -> ContinuousClock.Instant = { .now }
 
@@ -350,12 +368,18 @@ nonisolated struct AntigravityDiscovery {
         for (pid, executable) in processPaths(listing) {
             guard !Task.isCancelled, clock() < deadline else { return result.isEmpty ? nil : result }
             guard seen.insert(pid).inserted, alive(pid),
-                  let arguments = languageServerArguments(pid, executable: executable),
-                  let process = Self.parseArguments(arguments) else { continue }
+                  let arguments = languageServerArguments(pid, executable: executable) else { continue }
             guard !Task.isCancelled, clock() < deadline else { return result.isEmpty ? nil : result }
-            result += listeningPorts(pid).sorted().map { port in
-                let token = port == process.extensionPort ? process.extensionToken ?? process.token : process.token
-                return AntigravityEndpoint(port: port, token: token)
+            if let process = Self.parseArguments(arguments) {
+                result += listeningPorts(pid).sorted().map { port in
+                    let token = port == process.extensionPort ? process.extensionToken ?? process.token : process.token
+                    return AntigravityEndpoint(port: port, token: token)
+                }
+            } else if isSignedCLI(executable) {
+                // `agy` (e.g. T3 Code's `agy acp`) keeps its token in memory and writes no hub file.
+                // Its plain-HTTP loopback port answers the quota summary without one. Reached only after
+                // `languageServerArguments` verified the process's Google signature and owner.
+                result += listeningPorts(pid).sorted().map { AntigravityEndpoint(port: $0, token: "", plainHTTP: true) }
             }
         }
         if result.isEmpty, Task.isCancelled || clock() >= deadline { return nil }
@@ -366,14 +390,28 @@ nonisolated struct AntigravityDiscovery {
         output.split(whereSeparator: \.isNewline).compactMap { line in
             let fields = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
             guard fields.count == 2, let pid = Int32(fields[0]), pid > 0,
-                  fields[1].hasPrefix(executableRoot.path + "/"),
-                  fields[1].split(separator: "/").last?.hasPrefix("language_server") == true else { return nil }
+                  matchesCandidatePath(fields[1]) else { return nil }
             return (pid, String(fields[1]))
         }
     }
 
+    /// A `agy` path from `signedExecutables`, as opposed to the desktop app's `language_server`.
+    private func isSignedCLI(_ path: String) -> Bool {
+        !path.hasPrefix(executableRoot.path + "/") && matchesCandidatePath(Substring(path))
+    }
+
+    private func matchesCandidatePath(_ path: Substring) -> Bool {
+        if path.hasPrefix(executableRoot.path + "/"),
+           path.split(separator: "/").last?.hasPrefix("language_server") == true {
+            return true
+        }
+        return signedExecutables.contains {
+            path == $0.path || path == $0.resolvingSymlinksInPath().path
+        }
+    }
+
     private func languageServerArguments(_ pid: Int32, executable: String) -> Substring? {
-        guard validExecutable(executable) else { return nil }
+        guard validProcessExecutable(executable, pid: pid) else { return nil }
         guard let output = run("/bin/ps", ["-ww", "-p", String(pid), "-o", "pid=,uid=,command="]) else { return nil }
         for line in output.split(whereSeparator: \.isNewline) {
             let fields = line.split(maxSplits: 2, whereSeparator: \.isWhitespace)
@@ -389,6 +427,54 @@ nonisolated struct AntigravityDiscovery {
         let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath()
         return resolved.path.hasPrefix(root + "/") && resolved.lastPathComponent.hasPrefix("language_server")
             && isExecutable(resolved)
+    }
+
+    func validProcessExecutable(_ path: String, pid: Int32) -> Bool {
+        if validExecutable(path) { return true }
+        guard pid > 0, !path.split(separator: "/").contains("..") else { return false }
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+        let allowed = signedExecutables.contains {
+            $0.resolvingSymlinksInPath().standardizedFileURL.path == resolved.path
+        }
+        return allowed && isExecutable(resolved) && verifySignedProcess(pid, resolved)
+    }
+
+    /// Cryptographically verifies a live `agy` process against Google LLC's Developer ID and hardened runtime.
+    static func verifyGoogleSignedCLI(pid: Int32, expectedExecutable: URL) -> Bool {
+        var dynamicCode: SecCode?
+        guard SecCodeCopyGuestWithAttributes(
+            nil, [kSecGuestAttributePid: pid] as CFDictionary, [], &dynamicCode
+        ) == errSecSuccess, let dynamicCode else { return false }
+
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            googleCLIRequirement as CFString, [], &requirement
+        ) == errSecSuccess, let requirement else { return false }
+
+        guard SecCodeCheckValidity(
+            dynamicCode, SecCSFlags(rawValue: kSecCSStrictValidate), requirement
+        ) == errSecSuccess else { return false }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(dynamicCode, [], &staticCode) == errSecSuccess,
+              let staticCode else { return false }
+
+        var codePath: CFURL?
+        guard SecCodeCopyPath(staticCode, [], &codePath) == errSecSuccess,
+              let codeURL = codePath as URL?,
+              codeURL.resolvingSymlinksInPath().standardizedFileURL.path
+                  == expectedExecutable.resolvingSymlinksInPath().standardizedFileURL.path
+        else { return false }
+
+        var infoCF: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &infoCF
+        ) == errSecSuccess, let info = infoCF as? [String: Any],
+              let flags = info[kSecCodeInfoFlags as String] as? UInt32 else { return false }
+
+        let hardenedRuntime: UInt32 = 0x0001_0000
+        let adHoc: UInt32 = 0x0000_0002
+        return (flags & hardenedRuntime) != 0 && (flags & adHoc) == 0
     }
 
     static func commandArguments(_ command: Substring, executable: String) -> Substring? {
@@ -458,8 +544,40 @@ nonisolated enum AntigravityQuota {
             }
         }
         let identity = identity(in: status)
+        let banked = grouped ? bankedResets(in: response, now: now) : nil
         return ProviderSnapshot(id: .antigravity, account: identity.account, plan: identity.plan, windows: windows,
-                                fetchedAt: now, accountBinding: identity.binding)
+                                fetchedAt: now, resetCredits: banked, accountBinding: identity.binding)
+    }
+
+    private static let log = Logger(subsystem: "io.github.neeeeeeessa.AgentNotchPlus", category: "AntigravityQuota")
+
+    private static func bankedResets(in response: [String: Any], now: Date) -> ResetCredits {
+        let rawList = (response["bankedResets"] ?? response["banked_resets"]) as? [Any] ?? []
+        Self.log.notice("antigravity bankedResets count=\(rawList.count)")
+        var items: [ResetCredit] = []
+        for (index, raw) in rawList.enumerated() {
+            guard let entry = raw as? [String: Any] else { continue }
+            let expireTime = date(entry["expireTime"] ?? entry["expire_time"])
+            if let expireTime, expireTime <= now { continue }
+            let count: Int
+            if let rawCount = entry["remainingCount"] ?? entry["remaining_count"] {
+                guard let parsed = number(rawCount), parsed >= 1, let exact = Int(exactly: parsed.rounded(.towardZero)) else {
+                    continue
+                }
+                count = exact
+            } else {
+                count = 1
+            }
+            let rawLabel = (entry["displayLabel"] ?? entry["display_label"]) as? String
+            let trimmedLabel = rawLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = (trimmedLabel?.isEmpty == false ? trimmedLabel! : "Full reset")
+            let rawID = ((entry["resetId"] ?? entry["reset_id"]) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = (rawID?.isEmpty == false ? rawID! : "\(index)-\(label)-\(Int(expireTime?.timeIntervalSince1970 ?? 0))")
+            items.append(ResetCredit(id: id, label: label, expiresAt: expireTime, count: count))
+        }
+        items.sort { ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture) }
+        let total = items.reduce(0) { $0 + $1.count }
+        return ResetCredits(availableCount: total, items: items)
     }
 
     static func isAuthError(_ root: [String: Any]) -> Bool {
